@@ -34,6 +34,32 @@ export const initDB = async () => {
   await sql`
     CREATE INDEX IF NOT EXISTS idx_topics_parent_id ON topics(parent_id);
   `;
+  
+  // V2 Tables: Content Blocks & Templates
+  await sql`
+    CREATE TABLE IF NOT EXISTS content_blocks (
+      id TEXT PRIMARY KEY,
+      topic_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at INTEGER,
+      FOREIGN KEY(topic_id) REFERENCES topics(id) ON DELETE CASCADE
+    );
+  `;
+  
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_content_blocks_topic_id ON content_blocks(topic_id);
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      type TEXT NOT NULL, -- 'content' or 'subtopics'
+      is_default BOOLEAN DEFAULT 0
+    );
+  `;
 
   console.log('Database Initialized.');
 };

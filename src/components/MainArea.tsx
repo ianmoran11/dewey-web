@@ -1,15 +1,26 @@
 import React, { useState } from 'react';
 import { useStore } from '../lib/store';
 import ReactMarkdown from 'react-markdown';
-import { Wand2, FileText as FileIcon, Volume2 } from 'lucide-react';
-import { generateSubtopics, generateContent, generateAudio } from '../services/ai';
-import { createTopic, updateTopicContent, saveTopicAudio } from '../db/queries';
+import { Wand2, FileText as FileIcon, Volume2, ChevronDown, Trash2, Plus } from 'lucide-react';
+import { generateSubtopics, generateAIContent, generateAudio } from '../services/ai';
+import { createTopic, createContentBlock, deleteContentBlock, getSiblings, saveTopicAudio } from '../db/queries';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
 
 export const MainArea = () => {
-    const { selectedTopic, audioUrl, settings, refreshTopics, selectTopic } = useStore();
+    const { 
+        selectedTopic, 
+        selectedContentBlocks, 
+        audioUrl, 
+        settings, 
+        templates, 
+        refreshTopics, 
+        selectTopic,
+        refreshContentBlocks 
+    } = useStore();
+    
     const [generating, setGenerating] = useState(false);
+    const [showContentMenu, setShowContentMenu] = useState(false);
 
     if (!selectedTopic) {
         return (
@@ -22,14 +33,40 @@ export const MainArea = () => {
         );
     }
 
+    const interpolatePrompt = async (promptTemplate: string) => {
+        let text = promptTemplate.replace(/{{topic}}/g, selectedTopic.title);
+        
+        if (text.includes('{{neighbors}}')) {
+            const siblings = await getSiblings(selectedTopic.parent_id, selectedTopic.id);
+            text = text.replace(/{{neighbors}}/g, siblings.map(s => s.title).join(', '));
+        }
+        
+        return text;
+    }
+
     const handleGenerateSubtopics = async () => {
         if (!settings.openRouterKey) return toast.error("Please configure API Key (OpenRouter) first");
+        
         setGenerating(true);
         const toastId = toast.loading("Thinking...");
+        
         try {
-            const children = await generateSubtopics(settings.openRouterKey, selectedTopic.title);
+            // Find template or use default
+            const subtopicTemplate = templates.find(t => t.type === 'subtopics');
             
-            // Insert sequentially to ensure order/safety
+            // If template exists, use it to construct prompt? 
+            // Currently generateSubtopics function creates its own prompt structure for JSON. 
+            // We'll stick to the function for now, or if we want custom prompting for subtopics, 
+            // we'd need to parse the JSON output from the custom prompt.
+            // For now, we'll use the hardcoded logic but pass the model.
+            
+            const children = await generateSubtopics(
+                settings.openRouterKey, 
+                selectedTopic.title, 
+                undefined,
+                settings.modelSubtopic
+            );
+            
             for (const child of children) {
                 await createTopic({
                     id: uuidv4(),
@@ -49,21 +86,30 @@ export const MainArea = () => {
         }
     }
 
-    const handleGenerateContent = async () => {
+    const handleGenerateContent = async (templateId: string) => {
         if (!settings.openRouterKey) return toast.error("Please configure API Key (OpenRouter) first");
         
-        // Simple prompt for template choice could be a modal, but sticking to simple requirement:
-        // "Select a template" -> For now, default or cycle?
-        // Let's us a fixed template for MVP or randomize/simple prompt.
-        const template = "Academic Description"; 
+        const template = templates.find(t => t.id === templateId);
+        if (!template) return;
 
         setGenerating(true);
-        const toastId = toast.loading("Writing content...");
+        setShowContentMenu(false);
+        const toastId = toast.loading(`Generating ${template.name}...`);
+        
         try {
-            const content = await generateContent(settings.openRouterKey, selectedTopic.title, template);
-            await updateTopicContent(selectedTopic.id, content);
-            await selectTopic(selectedTopic.id); // reload data
-            toast.success("Content updated", { id: toastId });
+            const prompt = await interpolatePrompt(template.prompt);
+            const content = await generateAIContent(settings.openRouterKey, prompt, settings.modelContent);
+            
+            await createContentBlock({
+                id: uuidv4(),
+                topic_id: selectedTopic.id,
+                label: template.name,
+                content: content,
+                created_at: Date.now()
+            });
+
+            await refreshContentBlocks();
+            toast.success("Content added", { id: toastId });
         } catch (e: any) {
              console.error(e);
              toast.error(e.message || "Failed to generate", { id: toastId });
@@ -72,19 +118,28 @@ export const MainArea = () => {
         }
     }
 
+    const handleDeleteBlock = async (id: string) => {
+        if (confirm("Delete this section?")) {
+            await deleteContentBlock(id);
+            await refreshContentBlocks();
+        }
+    }
+
     const handleGenerateAudio = async () => {
         const key = settings.deepInfraKey || settings.openRouterKey;
         if (!key) return toast.error("Please configure an API Key first");
         
-        if (!selectedTopic.content) return toast.error("Generate content first");
+        // Combine all blocks for audio? Or just the first? Or allow selecting?
+        // Let's combine all text content for now.
+        const fullText = selectedContentBlocks.map(b => b.content).join('\n\n') || selectedTopic.content || '';
+        if (!fullText) return toast.error("No content to narrate");
         
         setGenerating(true);
         const toastId = toast.loading("Synthesizing audio...");
         try {
-            // Truncate content for TTS delta if needed, but let's try full
-            const blob = await generateAudio(key, selectedTopic.content);
+            const blob = await generateAudio(key, fullText.substring(0, 5000)); // Limit
             await saveTopicAudio(selectedTopic.id, blob);
-            await selectTopic(selectedTopic.id); // reload data
+            await selectTopic(selectedTopic.id); // reload data (audio url)
             toast.success("Audio attached", { id: toastId });
         } catch (e: any) {
             console.error(e);
@@ -94,8 +149,11 @@ export const MainArea = () => {
         }
     }
 
+    // Filter content templates
+    const contentTemplates = templates.filter(t => t.type === 'content');
+
     return (
-        <div key={selectedTopic.id} className="flex-1 h-full overflow-y-auto bg-white custom-scrollbar">
+        <div key={selectedTopic.id} className="flex-1 h-full overflow-y-auto bg-white custom-scrollbar pb-20">
             <div className="max-w-4xl mx-auto p-8 min-h-full flex flex-col">
                 {/* Header */}
                 <div className="mb-8 border-b border-gray-100 pb-6">
@@ -111,27 +169,55 @@ export const MainArea = () => {
                     </div>
                     
                     {/* Action Bar */}
-                     <div className="flex flex-wrap gap-3">
+                     <div className="flex flex-wrap gap-3 items-center">
                         <button 
                             onClick={handleGenerateSubtopics} 
                             disabled={generating}
-                            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 hover:text-blue-600 rounded-lg transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 hover:text-blue-600 rounded-lg transition-all shadow-sm disabled:opacity-50"
                         >
                             <Wand2 size={16} className={generating ? "animate-pulse" : ""} />
                             Expand Subtopics
                         </button>
-                         <button 
-                            onClick={handleGenerateContent} 
-                            disabled={generating}
-                            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 hover:text-green-600 rounded-lg transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            <FileIcon size={16} />
-                            Write Content
-                        </button>
+                        
+                        <div className="relative">
+                             <button 
+                                onClick={() => setShowContentMenu(!showContentMenu)} 
+                                disabled={generating}
+                                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 hover:text-green-600 rounded-lg transition-all shadow-sm disabled:opacity-50"
+                            >
+                                <Plus size={16} />
+                                Generate Content
+                                <ChevronDown size={14} className="text-gray-400" />
+                            </button>
+                            
+                            {showContentMenu && (
+                                <>
+                                    <div className="fixed inset-0 z-10" onClick={() => setShowContentMenu(false)}></div>
+                                    <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-20 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+                                        <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider bg-gray-50 border-b border-gray-50 mb-1">Select Template</div>
+                                        {contentTemplates.length === 0 ? (
+                                            <div className="px-4 py-2 text-sm text-gray-500">No content templates</div>
+                                        ) : (
+                                            contentTemplates.map(t => (
+                                                <button 
+                                                    key={t.id}
+                                                    onClick={() => handleGenerateContent(t.id)}
+                                                    className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors flex items-center gap-2"
+                                                >
+                                                    <FileIcon size={14} />
+                                                    {t.name}
+                                                </button>
+                                            ))
+                                        )}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+
                          <button 
                             onClick={handleGenerateAudio} 
                             disabled={generating}
-                             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 hover:text-purple-600 rounded-lg transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 hover:text-purple-600 rounded-lg transition-all shadow-sm disabled:opacity-50"
                         >
                             <Volume2 size={16} />
                             Narrate
@@ -152,18 +238,41 @@ export const MainArea = () => {
                     </div>
                 )}
 
-                {/* Content */}
-                <div className="prose prose-lg prose-slate max-w-none flex-1">
-                    {selectedTopic.content ? (
-                        <ReactMarkdown>{selectedTopic.content}</ReactMarkdown>
-                    ) : (
+                {/* Content Blocks */}
+                <div className="space-y-8 flex-1">
+                    {/* Fallback for legacy content */}
+                    {selectedTopic.content && selectedContentBlocks.length === 0 && (
+                         <div className="prose prose-lg prose-slate max-w-none">
+                            <ReactMarkdown>{selectedTopic.content}</ReactMarkdown>
+                         </div>
+                    )}
+                    
+                    {selectedContentBlocks.length === 0 && !selectedTopic.content ? (
                         <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-gray-200 rounded-xl bg-gray-50/50">
                             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4 text-gray-400">
                                 <FileIcon size={32} />
                             </div>
                             <p className="text-gray-500 font-medium">No content yet.</p>
-                            <p className="text-gray-400 text-sm mt-1">Click "Write Content" to generate using AI.</p>
+                            <p className="text-gray-400 text-sm mt-1">Select a template to generate content.</p>
                         </div>
+                    ) : (
+                        selectedContentBlocks.map(block => (
+                            <div key={block.id} className="group relative">
+                                <div className="flex justify-between items-center mb-3 border-b border-gray-100 pb-2">
+                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{block.label}</span>
+                                    <button 
+                                        onClick={() => handleDeleteBlock(block.id)}
+                                        className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-all"
+                                        title="Delete Section"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
+                                </div>
+                                <div className="prose prose-lg prose-slate max-w-none">
+                                    <ReactMarkdown>{block.content}</ReactMarkdown>
+                                </div>
+                            </div>
+                        ))
                     )}
                 </div>
             </div>
