@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useStore } from '../lib/store';
 import { buildTree } from '../utils/tree';
 import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft } from 'lucide-react';

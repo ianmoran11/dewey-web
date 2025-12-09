@@ -8,7 +8,6 @@ import { generateSubtopics, generateAIContent, generateAudio } from '../services
 import { createTopic, createContentBlock, deleteContentBlock, getSiblings, getAncestors, saveTopicAudio, saveBlockAudio, getBlockAudio } from '../db/queries';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
-import { debugAudio } from '../db/debug';
 
 const BlockAudioPlayer = ({ blockId }: { blockId: string }) => {
     const [url, setUrl] = useState<string | null>(null);

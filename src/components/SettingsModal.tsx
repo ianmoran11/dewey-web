@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../lib/store';
-import { X, Key, List, FileType, Trash2, Plus, BrainCircuit, Database, Download, Upload, AlertTriangle } from 'lucide-react';
+import { X, Key, List, Trash2, Plus, BrainCircuit, Database, Download, Upload, AlertTriangle } from 'lucide-react';
 import { getModels, OpenRouterModel } from '../services/ai';
 import { saveTemplate, deleteTemplate, exportDatabase, importDatabase, clearDatabase } from '../db/queries';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
 
 export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
-    const { settings, updateSetting, templates, refreshTemplates, refreshTopics, refreshContentBlocks } = useStore();
+    const { settings, updateSetting, templates, refreshTemplates, refreshTopics } = useStore();
     const [activeTab, setActiveTab] = useState<'general' | 'templates' | 'data'>('general');
     
     // API Keys
