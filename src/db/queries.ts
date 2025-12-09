@@ -134,3 +134,135 @@ export const getAncestors = async (id: string): Promise<Topic[]> => {
     `;
     return rows as unknown as Topic[];
 }
+
+// --- Data Management ---
+
+function bufferToBase64(buffer: Uint8Array): string {
+    let binary = '';
+    const len = buffer.byteLength;
+    for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(buffer[i]);
+    }
+    return btoa(binary);
+}
+
+function base64ToBuffer(base64: string): Uint8Array {
+    const binaryString = atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
+}
+
+export const exportDatabase = async () => {
+    console.log("DEBUG: Starting export");
+    
+    // Helper to serialize BigInts and other non-JSON types
+    const serialize = (rows: any) => {
+        if (!Array.isArray(rows)) {
+            try {
+                rows = Array.from(rows);
+            } catch (e) {
+                return [];
+            }
+        }
+
+        return rows.map((row: any) => {
+            const newRow: any = {};
+            for (const key in row) {
+                let value = row[key];
+                if (typeof value === 'bigint') {
+                    value = Number(value);
+                }
+                // Convert Uint8Array to base64 string for efficient JSON
+                if (value instanceof Uint8Array) {
+                    value = bufferToBase64(value);
+                }
+                newRow[key] = value;
+            }
+            return newRow;
+        });
+    };
+
+    try {
+        const topics = await sql`SELECT * FROM topics`;
+        const contentBlocks = await sql`SELECT * FROM content_blocks`;
+        const templates = await sql`SELECT * FROM templates`;
+        const settings = await sql`SELECT * FROM settings`;
+        
+        return {
+            timestamp: Date.now(),
+            topics: serialize(topics),
+            contentBlocks: serialize(contentBlocks),
+            templates: serialize(templates),
+            settings: serialize(settings)
+        };
+    } catch (e) {
+        console.error("DEBUG: Export error", e);
+        throw e;
+    }
+}
+
+export const clearDatabase = async () => {
+    await sql`DELETE FROM content_blocks`;
+    await sql`DELETE FROM topics`;
+    await sql`DELETE FROM templates`;
+    await sql`DELETE FROM settings`;
+}
+
+export const importDatabase = async (data: any) => {
+    if (!data.topics || !data.contentBlocks) {
+        throw new Error("Invalid import file format");
+    }
+
+    await clearDatabase();
+
+    // Helper to decode audio if string
+    const resolveAudio = (val: any) => {
+        if (typeof val === 'string') {
+            return base64ToBuffer(val);
+        }
+        if (val && typeof val === 'object') {
+            // Legacy fallback if user has an old export using array format
+            return new Uint8Array(Object.values(val)); 
+        }
+        return null;
+    }
+
+    // Import Topics
+    for (const t of data.topics) {
+        await sql`
+            INSERT INTO topics (id, parent_id, code, title, content, has_audio, created_at, audio)
+            VALUES (${t.id}, ${t.parent_id}, ${t.code}, ${t.title}, ${t.content}, ${t.has_audio}, ${t.created_at}, ${resolveAudio(t.audio)})
+        `;
+    }
+
+    // Import Content Blocks
+    for (const b of data.contentBlocks) {
+         await sql`
+            INSERT INTO content_blocks (id, topic_id, label, content, has_audio, created_at, audio)
+            VALUES (${b.id}, ${b.topic_id}, ${b.label}, ${b.content}, ${b.has_audio}, ${b.created_at}, ${resolveAudio(b.audio)})
+        `;
+    }
+
+    // Import Templates
+    if (data.templates) {
+        for (const t of data.templates) {
+            await sql`
+                INSERT INTO templates (id, name, prompt, type, is_default)
+                VALUES (${t.id}, ${t.name}, ${t.prompt}, ${t.type}, ${t.is_default})
+            `;
+        }
+    }
+    
+    // Import Settings
+    if (data.settings) {
+        for (const s of data.settings) {
+             await sql`
+                INSERT INTO settings (key, value) VALUES (${s.key}, ${s.value})
+            `;
+        }
+    }
+}

@@ -1,14 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../lib/store';
-import { X, Key, List, FileType, Trash2, Plus, BrainCircuit } from 'lucide-react';
+import { X, Key, List, FileType, Trash2, Plus, BrainCircuit, Database, Download, Upload, AlertTriangle } from 'lucide-react';
 import { getModels, OpenRouterModel } from '../services/ai';
-import { saveTemplate, deleteTemplate } from '../db/queries';
+import { saveTemplate, deleteTemplate, exportDatabase, importDatabase, clearDatabase } from '../db/queries';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
 
 export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
-    const { settings, updateSetting, templates, refreshTemplates } = useStore();
-    const [activeTab, setActiveTab] = useState<'general' | 'templates'>('general');
+    const { settings, updateSetting, templates, refreshTemplates, refreshTopics, refreshContentBlocks } = useStore();
+    const [activeTab, setActiveTab] = useState<'general' | 'templates' | 'data'>('general');
     
     // API Keys
     const [openRouterKey, setOpenRouterKey] = useState(settings.openRouterKey || '');
@@ -25,6 +25,9 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
     const [newTemplatePrompt, setNewTemplatePrompt] = useState('');
     const [newTemplateType, setNewTemplateType] = useState<'content' | 'subtopics'>('content');
     const [isAddingTemplate, setIsAddingTemplate] = useState(false);
+
+    // Data Management
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         if (openRouterKey) {
@@ -70,6 +73,72 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
             await refreshTemplates();
         }
     }
+
+    const handleExport = async () => {
+        try {
+            const data = await exportDatabase();
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `dewey-backup-${new Date().toISOString().slice(0, 10)}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            toast.success("Database exported");
+        } catch (e) {
+            console.error(e);
+            toast.error("Export failed");
+        }
+    }
+
+    const handleImportClick = () => {
+        fileInputRef.current?.click();
+    }
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (!confirm("This will OVERWRITE your current database. Continue?")) {
+            e.target.value = ''; // reset
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                const text = event.target?.result as string;
+                const data = JSON.parse(text);
+                await importDatabase(data);
+                
+                // Refresh everything
+                await refreshTemplates();
+                await refreshTopics();
+                
+                toast.success("Database imported successfully");
+                window.location.reload(); // safest way to update full state
+            } catch (err) {
+                console.error(err);
+                toast.error("Import failed: Invalid file");
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    const handleReset = async () => {
+        if (confirm("Are you sure? This will DELETE ALL DATA irreversibly.") && confirm("Really sure? This cannot be undone.")) {
+            try {
+                await clearDatabase();
+                toast.success("Database reset");
+                window.location.reload();
+            } catch (e) {
+                console.error(e);
+                toast.error("Reset failed");
+            }
+        }
+    }
     
     return (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
@@ -95,6 +164,12 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
                         className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors ${activeTab === 'templates' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
                     >
                         Prompt Templates
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('data')}
+                        className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors ${activeTab === 'data' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                    >
+                        Data Management
                     </button>
                 </div>
 
@@ -260,6 +335,61 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
                                     </div>
                                 ))}
                             </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'data' && (
+                        <div className="space-y-8">
+                            <section className="space-y-4">
+                                <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wide flex items-center gap-2">
+                                    <Database size={16} /> Backup & Restore
+                                </h3>
+                                <p className="text-sm text-gray-500">
+                                    Export your entire knowledge base, including topics, content, and templates, to a JSON file. 
+                                    Importing will <strong>overwrite</strong> your current data.
+                                </p>
+                                
+                                <div className="flex gap-4">
+                                    <button 
+                                        onClick={handleExport}
+                                        className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-blue-600 transition-colors shadow-sm"
+                                    >
+                                        <Download size={16} /> Export Data
+                                    </button>
+                                    
+                                    <button 
+                                        onClick={handleImportClick}
+                                        className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-green-600 transition-colors shadow-sm"
+                                    >
+                                        <Upload size={16} /> Import Data
+                                    </button>
+                                    <input 
+                                        type="file" 
+                                        ref={fileInputRef} 
+                                        onChange={handleFileChange} 
+                                        className="hidden" 
+                                        accept=".json"
+                                    />
+                                </div>
+                            </section>
+
+                            <section className="pt-8 border-t border-gray-100 space-y-4">
+                                <h3 className="text-sm font-bold text-red-600 uppercase tracking-wide flex items-center gap-2">
+                                    <AlertTriangle size={16} /> Danger Zone
+                                </h3>
+                                <div className="bg-red-50 border border-red-100 rounded-lg p-4 flex items-center justify-between">
+                                    <div>
+                                        <h4 className="text-sm font-medium text-red-900">Factory Reset</h4>
+                                        <p className="text-xs text-red-700 mt-1">Permanently delete all topics, content, and settings.</p>
+                                    </div>
+                                    <button 
+                                        onClick={handleReset}
+                                        className="px-4 py-2 bg-white border border-red-200 text-red-600 hover:bg-red-600 hover:text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+                                    >
+                                        Reset All
+                                    </button>
+                                </div>
+                            </section>
                         </div>
                     )}
                 </div>
