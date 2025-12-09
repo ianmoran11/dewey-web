@@ -118,21 +118,24 @@ export const generateAudio = async (
     apiKey: string,
     text: string
 ): Promise<Blob> => {
-    const response = await fetch('https://api.deepinfra.com/v1/inference/kokoro-82m', {
+    // Using OpenAI-compatible endpoint for consistent binary audio response
+    const response = await fetch('https://api.deepinfra.com/v1/openai/audio/speech', {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${apiKey}`,
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            text: text,
-            preset: "default"
+            model: "hexgrad/Kokoro-82M",
+            input: text,
+            voice: "af_bella" // Default voice
         })
     });
     
     if (!response.ok) {
-        throw new Error(`TTS Request Failed: ${response.statusText}`);
+        const err = await response.text();
+        throw new Error(`TTS Request Failed: ${response.statusText} - ${err}`);
     }
-    
+
     return await response.blob();
 }

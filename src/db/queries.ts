@@ -20,7 +20,11 @@ export const getTopic = async (id: string): Promise<Topic | null> => {
 export const getAudio = async (id: string): Promise<Blob | null> => {
   const rows = await sql`SELECT audio FROM topics WHERE id = ${id}`;
   if (rows.length === 0 || !rows[0].audio) return null;
-  return rows[0].audio as Blob;
+  // Convert Uint8Array (from DB) back to Blob for URL.createObjectURL
+  const uint8 = rows[0].audio as Uint8Array;
+  // DeepInfra Kokoro-82M typically returns WAV, not MP3.
+  // Using generic audio/wav or correct mime type is safest.
+  return new Blob([uint8 as any], { type: 'audio/wav' });
 };
 
 export const updateTopicContent = async (id: string, content: string) => {
@@ -28,7 +32,9 @@ export const updateTopicContent = async (id: string, content: string) => {
 };
 
 export const saveTopicAudio = async (id: string, audioBlob: Blob) => {
-  await sql`UPDATE topics SET audio = ${audioBlob}, has_audio = true WHERE id = ${id}`;
+  const buffer = await audioBlob.arrayBuffer();
+  const data = new Uint8Array(buffer);
+  await sql`UPDATE topics SET audio = ${data}, has_audio = true WHERE id = ${id}`;
 };
 
 export const createTopic = async (topic: Topic) => {

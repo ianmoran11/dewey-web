@@ -6,6 +6,7 @@ import { generateSubtopics, generateAIContent, generateAudio } from '../services
 import { createTopic, createContentBlock, deleteContentBlock, getSiblings, saveTopicAudio } from '../db/queries';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
+import { debugAudio } from '../db/debug';
 
 export const MainArea = () => {
     const { 
