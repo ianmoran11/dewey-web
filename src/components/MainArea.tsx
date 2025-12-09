@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useStore } from '../lib/store';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
+import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import { Wand2, FileText as FileIcon, Volume2, ChevronDown, Trash2, Plus } from 'lucide-react';
 import { generateSubtopics, generateAIContent, generateAudio } from '../services/ai';
@@ -325,7 +326,7 @@ export const MainArea = () => {
                     {/* Fallback for legacy content */}
                     {selectedTopic.content && selectedContentBlocks.length === 0 && (
                          <div className="prose prose-lg prose-slate max-w-none">
-                            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{selectedTopic.content}</ReactMarkdown>
+                            <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{selectedTopic.content}</ReactMarkdown>
                          </div>
                     )}
                     
@@ -361,7 +362,7 @@ export const MainArea = () => {
                                     </div>
                                 </div>
                                 <div className="prose prose-lg prose-slate max-w-none">
-                                    <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{block.content}</ReactMarkdown>
+                                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{block.content}</ReactMarkdown>
                                 </div>
                                 {block.has_audio && (
                                     <BlockAudioPlayer blockId={block.id} />

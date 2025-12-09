@@ -18,6 +18,7 @@
     "react-hot-toast": "^2.4.1",
     "react-markdown": "^9.0.1",
     "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "sqlocal": "*",
     "tailwind-merge": "^2.2.1",
