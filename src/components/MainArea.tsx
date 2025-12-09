@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useStore } from '../lib/store';
 import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 import { Wand2, FileText as FileIcon, Volume2, ChevronDown, Trash2, Plus } from 'lucide-react';
 import { generateSubtopics, generateAIContent, generateAudio } from '../services/ai';
 import { createTopic, createContentBlock, deleteContentBlock, getSiblings, saveTopicAudio } from '../db/queries';
@@ -244,7 +246,7 @@ export const MainArea = () => {
                     {/* Fallback for legacy content */}
                     {selectedTopic.content && selectedContentBlocks.length === 0 && (
                          <div className="prose prose-lg prose-slate max-w-none">
-                            <ReactMarkdown>{selectedTopic.content}</ReactMarkdown>
+                            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{selectedTopic.content}</ReactMarkdown>
                          </div>
                     )}
                     
@@ -270,7 +272,7 @@ export const MainArea = () => {
                                     </button>
                                 </div>
                                 <div className="prose prose-lg prose-slate max-w-none">
-                                    <ReactMarkdown>{block.content}</ReactMarkdown>
+                                    <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{block.content}</ReactMarkdown>
                                 </div>
                             </div>
                         ))
