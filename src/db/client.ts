@@ -61,6 +61,14 @@ export const initDB = async () => {
     );
   `;
 
+  // Migrations for existing databases
+  try {
+    await sql`ALTER TABLE content_blocks ADD COLUMN audio BLOB`;
+    await sql`ALTER TABLE content_blocks ADD COLUMN has_audio BOOLEAN DEFAULT 0`;
+  } catch (e) {
+    // Ignore if columns already exist
+  }
+
   console.log('Database Initialized.');
 };
 

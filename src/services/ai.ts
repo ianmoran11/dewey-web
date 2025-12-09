@@ -114,28 +114,91 @@ export const generateAIContent = async (
   return data.choices[0].message.content;
 }
 
+const stripMarkdown = (text: string): string => {
+    return text
+        // Remove headers
+        .replace(/^#+\s+/gm, '')
+        // Remove bold/italic
+        .replace(/(\*\*|__)(.*?)\1/g, '$2')
+        .replace(/(\*|_)(.*?)\1/g, '$2')
+        // Remove links [text](url) -> text
+        .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')
+        // Remove images ![alt](url) -> 
+        .replace(/!\[([^\]]*)\]\([^\)]+\)/g, '')
+        // Remove code blocks
+        .replace(/```[\s\S]*?```/g, '')
+        .replace(/`([^`]+)`/g, '$1')
+        // Remove blockquotes
+        .replace(/^\s*>\s+/gm, '')
+        // Remove list markers
+        .replace(/^\s*[-*+]\s+/gm, '')
+        .replace(/^\s*\d+\.\s+/gm, '')
+        // Remove math markers (optional, but good for TTS)
+        .replace(/\$+/g, '')
+        // Collapse newlines and multiple spaces to ensure continuous TTS generation
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 export const generateAudio = async (
     apiKey: string,
     text: string
 ): Promise<Blob> => {
-    // Using OpenAI-compatible endpoint for consistent binary audio response
-    const response = await fetch('https://api.deepinfra.com/v1/openai/audio/speech', {
+    const cleanText = stripMarkdown(text);
+    
+    // Switch back to native inference endpoint used by DeepInfra for Kokoro, 
+    // as the OpenAI wrapper seems to truncate text.
+    const response = await fetch('https://api.deepinfra.com/v1/inference/hexgrad/Kokoro-82M', {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${apiKey}`,
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            model: "hexgrad/Kokoro-82M",
-            input: text,
-            voice: "af_bella" // Default voice
+            text: cleanText,
+            preset: "default"
         })
     });
     
     if (!response.ok) {
-        const err = await response.text();
-        throw new Error(`TTS Request Failed: ${response.statusText} - ${err}`);
+        throw new Error(`TTS Request Failed: ${response.statusText}`);
     }
 
+    // Handle JSON response which contains base64 audio
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+        const data = await response.json();
+        
+        let audioBase64 = data.audio;
+        // Check for results array pattern
+        if (!audioBase64 && data.results && Array.isArray(data.results)) {
+             audioBase64 = data.results[0]?.audio;
+        }
+
+        if (audioBase64) {
+            try {
+                // Strip data URI prefix if present
+                const cleanBase64 = audioBase64.replace(/^data:audio\/\w+;base64,/, "");
+                
+                const binaryString = atob(cleanBase64);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                return new Blob([bytes], { type: 'audio/wav' });
+            } catch (e) {
+                console.error("Failed to decode audio base64. String start:", audioBase64?.substring(0, 50));
+                throw new Error(`Failed to decode audio from API: ${e instanceof Error ? e.message : String(e)}`);
+            }
+        }
+        
+        // If we get JSON but no audio field
+        console.warn("Unexpected TTS JSON response:", data);
+        // Fallback or throw? If it's just metadata, maybe the blob is somehow separate? 
+        // But context suggests it's base64.
+        throw new Error("API returned JSON without audio data");
+    }
+    
+    // Fallback for direct binary response
     return await response.blob();
 }

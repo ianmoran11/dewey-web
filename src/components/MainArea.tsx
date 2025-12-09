@@ -5,10 +5,37 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { Wand2, FileText as FileIcon, Volume2, ChevronDown, Trash2, Plus } from 'lucide-react';
 import { generateSubtopics, generateAIContent, generateAudio } from '../services/ai';
-import { createTopic, createContentBlock, deleteContentBlock, getSiblings, saveTopicAudio } from '../db/queries';
+import { createTopic, createContentBlock, deleteContentBlock, getSiblings, saveTopicAudio, saveBlockAudio, getBlockAudio } from '../db/queries';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
 import { debugAudio } from '../db/debug';
+
+const BlockAudioPlayer = ({ blockId }: { blockId: string }) => {
+    const [url, setUrl] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    React.useEffect(() => {
+        getBlockAudio(blockId).then(blob => {
+            if (blob) setUrl(URL.createObjectURL(blob));
+            setLoading(false);
+        });
+        return () => {
+            if (url) URL.revokeObjectURL(url);
+        }
+    }, [blockId]);
+
+    if (loading) return <div className="text-xs text-gray-400 py-2">Loading audio...</div>;
+    if (!url) return null;
+
+    return (
+        <div className="mt-4 mb-2 bg-gray-50 p-2 rounded-lg border border-gray-200 flex items-center gap-3">
+             <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center flex-shrink-0">
+                 <Volume2 size={16} />
+             </div>
+             <audio controls src={url} className="w-full h-8" />
+        </div>
+    )
+}
 
 export const MainArea = () => {
     const { 
@@ -128,21 +155,33 @@ export const MainArea = () => {
         }
     }
 
-    const handleGenerateAudio = async () => {
+    const handleGenerateAudio = async (blockId?: string) => {
         const key = settings.deepInfraKey || settings.openRouterKey;
         if (!key) return toast.error("Please configure an API Key first");
         
-        // Combine all blocks for audio? Or just the first? Or allow selecting?
-        // Let's combine all text content for now.
-        const fullText = selectedContentBlocks.map(b => b.content).join('\n\n') || selectedTopic.content || '';
-        if (!fullText) return toast.error("No content to narrate");
+        let textToNarrate = '';
+        if (blockId) {
+            const block = selectedContentBlocks.find(b => b.id === blockId);
+            if (!block) return;
+            textToNarrate = block.content;
+        } else {
+             textToNarrate = selectedContentBlocks.map(b => b.content).join('\n\n') || selectedTopic.content || '';
+        }
+        
+        if (!textToNarrate) return toast.error("No content to narrate");
         
         setGenerating(true);
         const toastId = toast.loading("Synthesizing audio...");
         try {
-            const blob = await generateAudio(key, fullText.substring(0, 5000)); // Limit
-            await saveTopicAudio(selectedTopic.id, blob);
-            await selectTopic(selectedTopic.id); // reload data (audio url)
+            const blob = await generateAudio(key, textToNarrate.substring(0, 5000)); // Limit
+            
+            if (blockId) {
+                await saveBlockAudio(blockId, blob);
+                await refreshContentBlocks();
+            } else {
+                await saveTopicAudio(selectedTopic.id, blob);
+                await selectTopic(selectedTopic.id); // reload data (audio url)
+            }
             toast.success("Audio attached", { id: toastId });
         } catch (e: any) {
             console.error(e);
@@ -218,12 +257,12 @@ export const MainArea = () => {
                         </div>
 
                          <button 
-                            onClick={handleGenerateAudio} 
+                            onClick={() => handleGenerateAudio()} 
                             disabled={generating}
                              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 hover:text-purple-600 rounded-lg transition-all shadow-sm disabled:opacity-50"
                         >
                             <Volume2 size={16} />
-                            Narrate
+                            Narrate Topic
                         </button>
                     </div>
                 </div>
@@ -263,17 +302,30 @@ export const MainArea = () => {
                             <div key={block.id} className="group relative">
                                 <div className="flex justify-between items-center mb-3 border-b border-gray-100 pb-2">
                                     <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{block.label}</span>
-                                    <button 
-                                        onClick={() => handleDeleteBlock(block.id)}
-                                        className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-all"
-                                        title="Delete Section"
-                                    >
-                                        <Trash2 size={14} />
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        <button 
+                                            onClick={() => handleGenerateAudio(block.id)}
+                                            disabled={generating}
+                                            className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-all"
+                                            title="Narrate Section"
+                                        >
+                                            <Volume2 size={14} />
+                                        </button>
+                                        <button 
+                                            onClick={() => handleDeleteBlock(block.id)}
+                                            className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-all"
+                                            title="Delete Section"
+                                        >
+                                            <Trash2 size={14} />
+                                        </button>
+                                    </div>
                                 </div>
                                 <div className="prose prose-lg prose-slate max-w-none">
                                     <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{block.content}</ReactMarkdown>
                                 </div>
+                                {block.has_audio && (
+                                    <BlockAudioPlayer blockId={block.id} />
+                                )}
                             </div>
                         ))
                     )}

@@ -18,6 +18,7 @@ export interface ContentBlock {
   topic_id: string;
   label: string;
   content: string;
+  has_audio?: boolean;
   created_at: number;
 }
 

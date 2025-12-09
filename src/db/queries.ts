@@ -52,9 +52,27 @@ export const deleteTopic = async (id: string) => {
 // --- Content Blocks ---
 
 export const getContentBlocks = async (topicId: string): Promise<ContentBlock[]> => {
-    const rows = await sql`SELECT * FROM content_blocks WHERE topic_id = ${topicId} ORDER BY created_at ASC`;
+    const rows = await sql`
+        SELECT id, topic_id, label, content, has_audio, created_at 
+        FROM content_blocks 
+        WHERE topic_id = ${topicId} 
+        ORDER BY created_at ASC
+    `;
     return rows as unknown as ContentBlock[];
 }
+
+export const getBlockAudio = async (id: string): Promise<Blob | null> => {
+    const rows = await sql`SELECT audio FROM content_blocks WHERE id = ${id}`;
+    if (rows.length === 0 || !rows[0].audio) return null;
+    const uint8 = rows[0].audio as Uint8Array;
+    return new Blob([uint8 as any], { type: 'audio/wav' });
+};
+
+export const saveBlockAudio = async (id: string, audioBlob: Blob) => {
+    const buffer = await audioBlob.arrayBuffer();
+    const data = new Uint8Array(buffer);
+    await sql`UPDATE content_blocks SET audio = ${data}, has_audio = true WHERE id = ${id}`;
+};
 
 export const createContentBlock = async (block: ContentBlock) => {
     await sql`
