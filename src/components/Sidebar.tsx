@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useStore } from '../lib/store';
 import { buildTree } from '../utils/tree';
-import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft } from 'lucide-react';
 import { TopicNode } from '../types';
 
 const TreeNode = ({ node, level, onSelect }: { node: TopicNode, level: number, onSelect: (id: string) => void }) => {
@@ -37,7 +37,15 @@ const TreeNode = ({ node, level, onSelect }: { node: TopicNode, level: number, o
     )
 }
 
-export const Sidebar = ({ onOpenSettings }: { onOpenSettings: () => void }) => {
+interface SidebarProps {
+    onOpenSettings: () => void;
+    width: number;
+    isOpen: boolean;
+    setIsOpen: (isOpen: boolean) => void;
+    onResizeStart: () => void;
+}
+
+export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStart }: SidebarProps) => {
     const topics = useStore(s => s.topics);
     const selectTopic = useStore(s => s.selectTopic);
     const [search, setSearch] = useState('');
@@ -54,9 +62,14 @@ export const Sidebar = ({ onOpenSettings }: { onOpenSettings: () => void }) => {
     }, [topics, search]);
 
     const tree = useMemo(() => buildTree(filteredTopics), [filteredTopics]);
+
+    if (!isOpen) return null;
     
     return (
-        <div className="w-80 h-full bg-gray-50 border-r border-gray-200 flex flex-col flex-shrink-0">
+        <div 
+            className="h-full bg-gray-50 border-r border-gray-200 flex flex-col flex-shrink-0 relative"
+            style={{ width }}
+        >
             <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-white shadow-sm z-10">
                 <div className="flex items-center">
                     <span className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center mr-3">
@@ -64,9 +77,14 @@ export const Sidebar = ({ onOpenSettings }: { onOpenSettings: () => void }) => {
                     </span>
                     <h2 className="font-bold text-lg text-gray-800 tracking-tight">Dewey</h2>
                 </div>
-                <button onClick={onOpenSettings} className="p-2 hover:bg-gray-100 rounded-full text-gray-500" title="Settings">
-                    <Settings size={18} />
-                </button>
+                <div className="flex gap-1">
+                    <button onClick={onOpenSettings} className="p-2 hover:bg-gray-100 rounded-full text-gray-500" title="Settings">
+                        <Settings size={18} />
+                    </button>
+                    <button onClick={() => setIsOpen(false)} className="p-2 hover:bg-gray-100 rounded-full text-gray-500" title="Collapse Sidebar">
+                        <ChevronsLeft size={18} />
+                    </button>
+                </div>
             </div>
             
             <div className="p-3 border-b border-gray-200 bg-gray-50/50">
@@ -91,6 +109,15 @@ export const Sidebar = ({ onOpenSettings }: { onOpenSettings: () => void }) => {
                     ))
                 )}
             </div>
+            
+            {/* Resize Handle */}
+            <div 
+                className="absolute right-0 top-0 w-1 h-full cursor-col-resize hover:bg-blue-400 z-50 transition-colors opacity-0 hover:opacity-100 delay-75"
+                onMouseDown={(e) => {
+                    e.preventDefault();
+                    onResizeStart();
+                }}
+            />
         </div>
     )
 }
