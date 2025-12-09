@@ -37,15 +37,21 @@ export const generateSubtopics = async (
   apiKey: string,
   topicTitle: string,
   parentContext?: string,
-  model?: string
+  model?: string,
+  customPrompt?: string
 ): Promise<string[]> => {
-  const prompt = `
-    You are a taxonomy expert.
-    Generate a JSON list of 5-10 logical subtopics for the topic "${topicTitle}".
-    ${parentContext ? `Context: This topic is part of "${parentContext}".` : ''}
-    Return ONLY a JSON array of strings. No markdown, no explanations.
-    Example: ["Subtopic 1", "Subtopic 2"]
-  `;
+  let prompt = '';
+  if (customPrompt) {
+    prompt = customPrompt;
+  } else {
+    prompt = `
+      You are a taxonomy expert.
+      Generate a JSON list of 5-10 logical subtopics for the topic "${topicTitle}".
+      ${parentContext ? `Context: This topic is part of "${parentContext}".` : ''}
+      Return ONLY a JSON array of strings. No markdown, no explanations.
+      Example: ["Subtopic 1", "Subtopic 2"]
+    `;
+  }
 
   const messages = [
      { role: "system", content: "You are a helpful assistant that outputs JSON only." },
@@ -74,7 +80,17 @@ export const generateSubtopics = async (
   const content = data.choices[0].message.content;
   
   try {
-    const parsed = JSON.parse(content);
+    // Clean up common markdown formatting for code blocks
+    let jsonText = content.replace(/```json\n?|\n?```/g, '').trim();
+    
+    // Try to find array brackets if there is extra text
+    const start = jsonText.indexOf('[');
+    const end = jsonText.lastIndexOf(']');
+    if (start !== -1 && end !== -1 && end > start) {
+        jsonText = jsonText.substring(start, end + 1);
+    }
+
+    const parsed = JSON.parse(jsonText);
     if (Array.isArray(parsed)) return parsed as string[];
     // Sometimes returns { "subtopics": [...] }
     if (typeof parsed === 'object' && parsed.subtopics && Array.isArray(parsed.subtopics)) {

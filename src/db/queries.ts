@@ -119,3 +119,18 @@ export const getSiblings = async (parentId: string | null, currentId: string): P
         return rows as unknown as Topic[];
     }
 }
+
+export const getAncestors = async (id: string): Promise<Topic[]> => {
+    const rows = await sql`
+        WITH RECURSIVE ancestors AS (
+            SELECT id, parent_id, code, title, content, has_audio, created_at, 0 as level 
+            FROM topics WHERE id = ${id}
+            UNION ALL
+            SELECT t.id, t.parent_id, t.code, t.title, t.content, t.has_audio, t.created_at, a.level + 1
+            FROM topics t
+            JOIN ancestors a ON t.id = a.parent_id
+        )
+        SELECT * FROM ancestors WHERE id != ${id} ORDER BY level DESC;
+    `;
+    return rows as unknown as Topic[];
+}

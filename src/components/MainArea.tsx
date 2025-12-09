@@ -5,7 +5,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { Wand2, FileText as FileIcon, Volume2, ChevronDown, Trash2, Plus } from 'lucide-react';
 import { generateSubtopics, generateAIContent, generateAudio } from '../services/ai';
-import { createTopic, createContentBlock, deleteContentBlock, getSiblings, saveTopicAudio, saveBlockAudio, getBlockAudio } from '../db/queries';
+import { createTopic, createContentBlock, deleteContentBlock, getSiblings, getAncestors, saveTopicAudio, saveBlockAudio, getBlockAudio } from '../db/queries';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
 import { debugAudio } from '../db/debug';
@@ -51,6 +51,7 @@ export const MainArea = () => {
     
     const [generating, setGenerating] = useState(false);
     const [showContentMenu, setShowContentMenu] = useState(false);
+    const [showSubtopicMenu, setShowSubtopicMenu] = useState(false);
 
     if (!selectedTopic) {
         return (
@@ -71,30 +72,38 @@ export const MainArea = () => {
             text = text.replace(/{{neighbors}}/g, siblings.map(s => s.title).join(', '));
         }
         
+        if (text.includes('{{ancestors}}')) {
+            const ancestors = await getAncestors(selectedTopic.id);
+            text = text.replace(/{{ancestors}}/g, ancestors.map(a => a.title).join(' > '));
+        }
+        
         return text;
     }
 
-    const handleGenerateSubtopics = async () => {
+    const handleGenerateSubtopics = async (templateId?: string) => {
         if (!settings.openRouterKey) return toast.error("Please configure API Key (OpenRouter) first");
         
         setGenerating(true);
+        setShowSubtopicMenu(false);
         const toastId = toast.loading("Thinking...");
         
         try {
-            // Find template or use default
-            const subtopicTemplate = templates.find(t => t.type === 'subtopics');
+            let customPrompt: string | undefined = undefined;
             
-            // If template exists, use it to construct prompt? 
-            // Currently generateSubtopics function creates its own prompt structure for JSON. 
-            // We'll stick to the function for now, or if we want custom prompting for subtopics, 
-            // we'd need to parse the JSON output from the custom prompt.
-            // For now, we'll use the hardcoded logic but pass the model.
-            
+            if (templateId) {
+                const subtopicTemplate = templates.find(t => t.id === templateId);
+                if (subtopicTemplate) {
+                    let t = await interpolatePrompt(subtopicTemplate.prompt);
+                    customPrompt = t + "\n\nIMPORTANT: Return ONLY a JSON array of strings. Example: [\"Subtopic 1\"]";
+                }
+            }
+
             const children = await generateSubtopics(
                 settings.openRouterKey, 
                 selectedTopic.title, 
                 undefined,
-                settings.modelSubtopic
+                settings.modelSubtopic,
+                customPrompt
             );
             
             for (const child of children) {
@@ -191,8 +200,9 @@ export const MainArea = () => {
         }
     }
 
-    // Filter content templates
+    // Filter templates
     const contentTemplates = templates.filter(t => t.type === 'content');
+    const subtopicTemplates = templates.filter(t => t.type === 'subtopics');
 
     return (
         <div key={selectedTopic.id} className="flex-1 h-full overflow-y-auto bg-white custom-scrollbar pb-20">
@@ -212,14 +222,45 @@ export const MainArea = () => {
                     
                     {/* Action Bar */}
                      <div className="flex flex-wrap gap-3 items-center">
-                        <button 
-                            onClick={handleGenerateSubtopics} 
-                            disabled={generating}
-                            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 hover:text-blue-600 rounded-lg transition-all shadow-sm disabled:opacity-50"
-                        >
-                            <Wand2 size={16} className={generating ? "animate-pulse" : ""} />
-                            Expand Subtopics
-                        </button>
+                        <div className="relative">
+                            <button 
+                                onClick={() => setShowSubtopicMenu(!showSubtopicMenu)} 
+                                disabled={generating}
+                                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 hover:text-blue-600 rounded-lg transition-all shadow-sm disabled:opacity-50"
+                            >
+                                <Wand2 size={16} className={generating ? "animate-pulse" : ""} />
+                                Expand Subtopics
+                                <ChevronDown size={14} className="text-gray-400" />
+                            </button>
+
+                            {showSubtopicMenu && (
+                                <>
+                                    <div className="fixed inset-0 z-10" onClick={() => setShowSubtopicMenu(false)}></div>
+                                    <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-20 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+                                        <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider bg-gray-50 border-b border-gray-50 mb-1">Select Strategy</div>
+                                        
+                                        <button 
+                                            onClick={() => handleGenerateSubtopics()}
+                                            className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors flex items-center gap-2"
+                                        >
+                                            <Wand2 size={14} />
+                                            Default (Standard)
+                                        </button>
+
+                                        {subtopicTemplates.map(t => (
+                                            <button 
+                                                key={t.id}
+                                                onClick={() => handleGenerateSubtopics(t.id)}
+                                                className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors flex items-center gap-2"
+                                            >
+                                                <FileIcon size={14} />
+                                                {t.name}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </>
+                            )}
+                        </div>
                         
                         <div className="relative">
                              <button 
