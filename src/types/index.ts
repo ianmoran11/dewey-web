@@ -35,3 +35,17 @@ export interface Settings {
   modelSubtopic?: string;
   modelContent?: string;
 }
+
+export type JobType = 'subtopics' | 'content' | 'audio';
+export type JobStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
+export interface Job {
+    id: string;
+    type: JobType;
+    status: JobStatus;
+    payload: any;
+    error?: string;
+    createdAt: number;
+    startedAt?: number;
+    completedAt?: number;
+}

@@ -1,8 +1,34 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../lib/store';
 import { buildTree } from '../utils/tree';
-import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2 } from 'lucide-react';
 import { TopicNode } from '../types';
+
+const QueueStatus = () => {
+    const jobs = useStore(s => s.jobs);
+    
+    // Only count pending or processing
+    const activeJobs = jobs.filter(j => j.status === 'processing');
+    const pendingJobs = jobs.filter(j => j.status === 'pending');
+    
+    if (activeJobs.length === 0 && pendingJobs.length === 0) return null;
+    
+    return (
+        <div className="p-3 border-t border-gray-200 bg-blue-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+             <div className="flex items-center justify-between mb-1">
+                 <span className="text-xs font-bold text-blue-900 uppercase tracking-widest flex items-center gap-2">
+                    <Loader2 size={12} className="animate-spin text-blue-600" />
+                    Background Tasks
+                 </span>
+             </div>
+             <div className="flex gap-4 text-xs font-medium text-blue-700 mt-2">
+                 <span>Running: {activeJobs.length}</span>
+                 <span className="text-blue-400">|</span>
+                 <span>Pending: {pendingJobs.length}</span>
+             </div>
+        </div>
+    )
+}
 
 const TreeNode = ({ node, level, onSelect }: { node: TopicNode, level: number, onSelect: (id: string) => void }) => {
     const [expanded, setExpanded] = useState(false);
@@ -109,6 +135,8 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
                     ))
                 )}
             </div>
+
+            <QueueStatus />
             
             {/* Resize Handle */}
             <div 

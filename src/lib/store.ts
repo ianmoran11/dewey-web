@@ -1,12 +1,21 @@
 import { create } from 'zustand';
-import { Topic, Settings, Template, ContentBlock } from '../types';
-import { getTopics, getTopic, getAudio, getTemplates, getContentBlocks } from '../db/queries';
+import { v4 as uuidv4 } from 'uuid';
+import { Topic, Settings, Template, ContentBlock, Job, JobType } from '../types';
+import { 
+    getTopics, getTopic, getAudio, getTemplates, getContentBlocks,
+    createTopic, createContentBlock, saveTopicAudio, saveBlockAudio
+} from '../db/queries';
+import { generateSubtopics, generateAIContent, generateAudio } from '../services/ai';
 import { initDB, getSettings, saveSetting } from '../db/client';
 import { seedDatabase } from '../db/seed';
 
 let initialized = false;
+const MAX_CONCURRENT_JOBS = 3;
+const JOB_DELAY_MS = 5000;
 
 interface AppState {
+  jobs: Job[];
+  lastJobStartedAt: number;
   topics: Topic[];
   selectedTopicId: string | null;
   selectedTopic: Topic | null;
@@ -24,9 +33,17 @@ interface AppState {
   refreshContentBlocks: () => Promise<void>;
   updateSetting: (key: keyof Settings, value: string) => Promise<void>;
   setLoading: (loading: boolean) => void;
+  
+  // Job Queue Actions
+  addJob: (type: JobType, payload: any) => void;
+  removeJob: (id: string) => void;
+  clearCompletedJobs: () => void;
+  processQueue: () => Promise<void>;
 }
 
 export const useStore = create<AppState>((set, get) => ({
+  jobs: [],
+  lastJobStartedAt: 0,
   topics: [],
   selectedTopicId: null,
   selectedTopic: null,
@@ -36,6 +53,138 @@ export const useStore = create<AppState>((set, get) => ({
   settings: {},
   isLoading: false,
   isInitializing: true,
+
+  addJob: (type: JobType, payload: any) => {
+    const job: Job = {
+        id: uuidv4(),
+        type,
+        payload,
+        status: 'pending',
+        createdAt: Date.now()
+    };
+    set((state) => ({ jobs: [...state.jobs, job] }));
+    get().processQueue();
+  },
+
+  removeJob: (id: string) => {
+    set((state) => ({ jobs: state.jobs.filter(j => j.id !== id) }));
+  },
+
+  clearCompletedJobs: () => {
+    set((state) => ({ jobs: state.jobs.filter(j => j.status !== 'completed' && j.status !== 'failed') }));
+  },
+
+  processQueue: async () => {
+    const { jobs, lastJobStartedAt, settings } = get();
+    
+    // Concurrency Check
+    const activeJobs = jobs.filter(j => j.status === 'processing');
+    if (activeJobs.length >= MAX_CONCURRENT_JOBS) return;
+
+    // Find next pending job
+    const pendingJob = jobs.find(j => j.status === 'pending');
+    if (!pendingJob) return;
+
+    // Rate Limit Check
+    const now = Date.now();
+    const timeSinceLast = now - lastJobStartedAt;
+    if (timeSinceLast < JOB_DELAY_MS) {
+        // Schedule retry
+        setTimeout(() => get().processQueue(), JOB_DELAY_MS - timeSinceLast + 100);
+        return;
+    }
+
+    // Start Job
+    set((state) => ({
+        lastJobStartedAt: now,
+        jobs: state.jobs.map(j => j.id === pendingJob.id ? { ...j, status: 'processing', startedAt: now } : j)
+    }));
+
+    // Trigger next check immediately for concurrency filling
+    get().processQueue();
+
+    try {
+        const apiKey = settings.openRouterKey;
+        const deepInfraKey = settings.deepInfraKey || settings.openRouterKey;
+
+        if (pendingJob.type === 'subtopics') {
+            if (!apiKey) throw new Error("Missing API Key");
+            const { parentId, topicTitle, customPrompt, model } = pendingJob.payload;
+            
+            const children = await generateSubtopics(
+                apiKey, 
+                topicTitle, 
+                undefined,
+                model,
+                customPrompt
+            );
+
+            for (const child of children) {
+                await createTopic({
+                    id: uuidv4(),
+                    parent_id: parentId,
+                    title: child,
+                    has_audio: false,
+                    created_at: Date.now()
+                });
+            }
+            await get().refreshTopics();
+        } 
+        else if (pendingJob.type === 'content') {
+            if (!apiKey) throw new Error("Missing API Key");
+            const { topicId, label, prompt, model } = pendingJob.payload;
+            
+            const content = await generateAIContent(apiKey, prompt, model);
+            
+            await createContentBlock({
+                id: uuidv4(),
+                topic_id: topicId,
+                label,
+                content,
+                created_at: Date.now()
+            });
+
+            // Only refresh if we are looking at this topic
+            if (get().selectedTopicId === topicId) {
+                await get().refreshContentBlocks();
+            }
+        }
+        else if (pendingJob.type === 'audio') {
+             if (!deepInfraKey) throw new Error("Missing API Key");
+             const { targetId, isBlock, text } = pendingJob.payload;
+             
+             // Limit text length to prevent timeouts
+             const blob = await generateAudio(deepInfraKey, text.substring(0, 5000));
+             
+             if (isBlock) {
+                 await saveBlockAudio(targetId, blob);
+                 if (get().selectedTopicId) await get().refreshContentBlocks();
+             } else {
+                 await saveTopicAudio(targetId, blob);
+                 // If this is the currently selected topic, reload it to update audioUrl
+                 if (get().selectedTopicId === targetId) {
+                     await get().selectTopic(targetId);
+                 } else {
+                    await get().refreshTopics(); // Update icon
+                 }
+             }
+        }
+
+        // Job Success
+         set((state) => ({
+            jobs: state.jobs.map(j => j.id === pendingJob.id ? { ...j, status: 'completed', completedAt: Date.now() } : j)
+        }));
+
+    } catch (e: any) {
+        console.error(`Job ${pendingJob.id} failed:`, e);
+        set((state) => ({
+            jobs: state.jobs.map(j => j.id === pendingJob.id ? { ...j, status: 'failed', error: e.message || "Unknown error", completedAt: Date.now() } : j)
+        }));
+    } finally {
+        // Trigger queue again to pick up next tasks
+        get().processQueue();
+    }
+  },
 
   init: async () => {
     if (initialized) return;

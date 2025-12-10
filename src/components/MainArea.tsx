@@ -5,9 +5,7 @@ import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import { Wand2, FileText as FileIcon, Volume2, ChevronDown, Trash2, Plus } from 'lucide-react';
-import { generateSubtopics, generateAIContent, generateAudio } from '../services/ai';
-import { createTopic, createContentBlock, deleteContentBlock, getSiblings, getAncestors, saveTopicAudio, saveBlockAudio, getBlockAudio } from '../db/queries';
-import { v4 as uuidv4 } from 'uuid';
+import { deleteContentBlock, getSiblings, getAncestors, getBlockAudio } from '../db/queries';
 import toast from 'react-hot-toast';
 
 const BlockAudioPlayer = ({ blockId }: { blockId: string }) => {
@@ -44,12 +42,10 @@ export const MainArea = () => {
         audioUrl, 
         settings, 
         templates, 
-        refreshTopics, 
-        selectTopic,
-        refreshContentBlocks 
+        refreshContentBlocks,
+        addJob
     } = useStore();
     
-    const [generating, setGenerating] = useState(false);
     const [showContentMenu, setShowContentMenu] = useState(false);
     const [showSubtopicMenu, setShowSubtopicMenu] = useState(false);
 
@@ -83,9 +79,7 @@ export const MainArea = () => {
     const handleGenerateSubtopics = async (templateId?: string) => {
         if (!settings.openRouterKey) return toast.error("Please configure API Key (OpenRouter) first");
         
-        setGenerating(true);
         setShowSubtopicMenu(false);
-        const toastId = toast.loading("Thinking...");
         
         try {
             let customPrompt: string | undefined = undefined;
@@ -98,30 +92,17 @@ export const MainArea = () => {
                 }
             }
 
-            const children = await generateSubtopics(
-                settings.openRouterKey, 
-                selectedTopic.title, 
-                undefined,
-                settings.modelSubtopic,
-                customPrompt
-            );
+            addJob('subtopics', {
+                parentId: selectedTopic.id,
+                topicTitle: selectedTopic.title,
+                customPrompt,
+                model: settings.modelSubtopic
+            });
             
-            for (const child of children) {
-                await createTopic({
-                    id: uuidv4(),
-                    parent_id: selectedTopic.id,
-                    title: child,
-                    has_audio: false,
-                    created_at: Date.now()
-                });
-            }
-            toast.success(`Generated ${children.length} subtopics`, { id: toastId });
-            await refreshTopics();
+            toast.success(`Generation queued`, { duration: 2000 });
         } catch (e: any) {
             console.error(e);
-            toast.error(e.message || "Failed to generate", { id: toastId });
-        } finally {
-            setGenerating(false);
+            toast.error(e.message || "Failed to generate");
         }
     }
 
@@ -131,29 +112,22 @@ export const MainArea = () => {
         const template = templates.find(t => t.id === templateId);
         if (!template) return;
 
-        setGenerating(true);
         setShowContentMenu(false);
-        const toastId = toast.loading(`Generating ${template.name}...`);
         
         try {
             const prompt = await interpolatePrompt(template.prompt);
-            const content = await generateAIContent(settings.openRouterKey, prompt, settings.modelContent);
             
-            await createContentBlock({
-                id: uuidv4(),
-                topic_id: selectedTopic.id,
+            addJob('content', {
+                topicId: selectedTopic.id,
                 label: template.name,
-                content: content,
-                created_at: Date.now()
+                prompt,
+                model: settings.modelContent
             });
 
-            await refreshContentBlocks();
-            toast.success("Content added", { id: toastId });
+            toast.success("Content generation queued");
         } catch (e: any) {
              console.error(e);
-             toast.error(e.message || "Failed to generate", { id: toastId });
-        } finally {
-            setGenerating(false);
+             toast.error(e.message || "Failed to generate");
         }
     }
 
@@ -179,25 +153,13 @@ export const MainArea = () => {
         
         if (!textToNarrate) return toast.error("No content to narrate");
         
-        setGenerating(true);
-        const toastId = toast.loading("Synthesizing audio...");
-        try {
-            const blob = await generateAudio(key, textToNarrate.substring(0, 5000)); // Limit
-            
-            if (blockId) {
-                await saveBlockAudio(blockId, blob);
-                await refreshContentBlocks();
-            } else {
-                await saveTopicAudio(selectedTopic.id, blob);
-                await selectTopic(selectedTopic.id); // reload data (audio url)
-            }
-            toast.success("Audio attached", { id: toastId });
-        } catch (e: any) {
-            console.error(e);
-            toast.error(e.message || "TTS Failed", { id: toastId });
-        } finally {
-            setGenerating(false);
-        }
+        addJob('audio', {
+            targetId: blockId || selectedTopic.id,
+            isBlock: !!blockId,
+            text: textToNarrate
+        });
+        
+        toast.success("Audio synthesis queued");
     }
 
     // Filter templates
@@ -225,10 +187,9 @@ export const MainArea = () => {
                         <div className="relative">
                             <button 
                                 onClick={() => setShowSubtopicMenu(!showSubtopicMenu)} 
-                                disabled={generating}
                                 className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 hover:text-blue-600 rounded-lg transition-all shadow-sm disabled:opacity-50"
                             >
-                                <Wand2 size={16} className={generating ? "animate-pulse" : ""} />
+                                <Wand2 size={16} />
                                 Expand Subtopics
                                 <ChevronDown size={14} className="text-gray-400" />
                             </button>
@@ -265,7 +226,6 @@ export const MainArea = () => {
                         <div className="relative">
                              <button 
                                 onClick={() => setShowContentMenu(!showContentMenu)} 
-                                disabled={generating}
                                 className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 hover:text-green-600 rounded-lg transition-all shadow-sm disabled:opacity-50"
                             >
                                 <Plus size={16} />
@@ -299,7 +259,6 @@ export const MainArea = () => {
 
                          <button 
                             onClick={() => handleGenerateAudio()} 
-                            disabled={generating}
                              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 hover:text-purple-600 rounded-lg transition-all shadow-sm disabled:opacity-50"
                         >
                             <Volume2 size={16} />
@@ -346,7 +305,6 @@ export const MainArea = () => {
                                     <div className="flex items-center gap-2">
                                         <button 
                                             onClick={() => handleGenerateAudio(block.id)}
-                                            disabled={generating}
                                             className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-all"
                                             title="Narrate Section"
                                         >
