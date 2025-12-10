@@ -16,6 +16,7 @@ const JOB_DELAY_MS = 5000;
 interface AppState {
   jobs: Job[];
   lastJobStartedAt: number;
+  unreadTopics: Set<string>;
   topics: Topic[];
   selectedTopicId: string | null;
   selectedTopic: Topic | null;
@@ -44,6 +45,7 @@ interface AppState {
 export const useStore = create<AppState>((set, get) => ({
   jobs: [],
   lastJobStartedAt: 0,
+  unreadTopics: new Set(),
   topics: [],
   selectedTopicId: null,
   selectedTopic: null,
@@ -171,9 +173,21 @@ export const useStore = create<AppState>((set, get) => ({
         }
 
         // Job Success
-         set((state) => ({
-            jobs: state.jobs.map(j => j.id === pendingJob.id ? { ...j, status: 'completed', completedAt: Date.now() } : j)
-        }));
+        let targetTopicId = null;
+        if (pendingJob.type === 'subtopics') targetTopicId = pendingJob.payload.parentId;
+        if (pendingJob.type === 'content') targetTopicId = pendingJob.payload.topicId;
+        if (pendingJob.type === 'audio') targetTopicId = pendingJob.payload.targetId; // Assuming target is topic or block
+
+        set((state) => {
+            const newUnread = new Set(state.unreadTopics);
+            if (targetTopicId && targetTopicId !== state.selectedTopicId) {
+                newUnread.add(targetTopicId);
+            }
+            return {
+                jobs: state.jobs.map(j => j.id === pendingJob.id ? { ...j, status: 'completed', completedAt: Date.now() } : j),
+                unreadTopics: newUnread
+            };
+        });
 
     } catch (e: any) {
         console.error(`Job ${pendingJob.id} failed:`, e);
@@ -221,6 +235,13 @@ export const useStore = create<AppState>((set, get) => ({
     // Cleanup old audio url
     const oldUrl = get().audioUrl;
     if (oldUrl) URL.revokeObjectURL(oldUrl);
+
+    // Mark as read
+    if (id && get().unreadTopics.has(id)) {
+        const newUnread = new Set(get().unreadTopics);
+        newUnread.delete(id);
+        set({ unreadTopics: newUnread });
+    }
     
     set({ selectedTopicId: id, audioUrl: null, selectedTopic: null, selectedContentBlocks: [] });
     

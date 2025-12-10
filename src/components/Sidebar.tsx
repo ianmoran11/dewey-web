@@ -33,15 +33,38 @@ const QueueStatus = () => {
 const TreeNode = ({ node, level, onSelect }: { node: TopicNode, level: number, onSelect: (id: string) => void }) => {
     const [expanded, setExpanded] = useState(false);
     const selectedTopicId = useStore(s => s.selectedTopicId);
+    const jobs = useStore(s => s.jobs);
+    const unreadTopics = useStore(s => s.unreadTopics);
     
     const hasChildren = node.children.length > 0;
     const isSelected = selectedTopicId === node.id;
+
+    // Check if this topic is involved in any active/pending jobs
+    const isQueued = jobs.some(j => 
+        (j.status === 'processing' || j.status === 'pending') && (
+            (j.type === 'subtopics' && j.payload.parentId === node.id) ||
+            (j.type === 'content' && j.payload.topicId === node.id) ||
+            (j.type === 'audio' && j.payload.targetId === node.id)
+        )
+    );
+
+    const isUnread = unreadTopics.has(node.id);
     
+    // Determine background classes based on state
+    let bgClasses = 'hover:bg-gray-200 text-gray-700';
+    if (isSelected) {
+        bgClasses = 'bg-blue-100 text-blue-800 font-medium';
+    } else if (isUnread) {
+        bgClasses = 'bg-green-50 text-green-800 border-l-4 border-green-500 pl-[calc(0.5rem-4px)]';
+    } else if (isQueued) {
+        bgClasses = 'bg-yellow-50 text-yellow-800 border-l-4 border-yellow-400 pl-[calc(0.5rem-4px)] animate-pulse';
+    }
+
     return (
         <div>
             <div 
-                className={`flex items-center py-1 px-2 cursor-pointer hover:bg-gray-200 transition-colors select-none ${isSelected ? 'bg-blue-100 text-blue-800 font-medium' : 'text-gray-700'}`}
-                style={{ paddingLeft: `${level * 16 + 8}px` }}
+                className={`flex items-center py-1 px-2 cursor-pointer transition-colors select-none ${bgClasses}`}
+                style={{ paddingLeft: isUnread || isQueued ? `${level * 16 + 8 - 4}px` : `${level * 16 + 8}px` }}
                 onClick={() => onSelect(node.id)}
             >
                 <div 
@@ -54,7 +77,11 @@ const TreeNode = ({ node, level, onSelect }: { node: TopicNode, level: number, o
                     {hasChildren ? (expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : <span className="w-3.5 h-3.5 inline-block"/>}
                 </div>
                 {hasChildren ? <Folder size={16} className="mr-2 text-yellow-500 fill-current" /> : <FileText size={16} className="mr-2 text-gray-400" />}
-                <span className="truncate text-sm">{node.code ? `${node.code} ` : ''}{node.title}</span>
+                <span className="truncate text-sm flex-1">{node.code ? `${node.code} ` : ''}{node.title}</span>
+                
+                {/* Icons for status */}
+                {isQueued && <Loader2 size={12} className="animate-spin text-yellow-600 ml-2" />}
+                {isUnread && <div className="w-2 h-2 rounded-full bg-green-500 ml-2" />}
             </div>
             {expanded && hasChildren && node.children.map(child => (
                 <TreeNode key={child.id} node={child} level={level + 1} onSelect={onSelect} />
