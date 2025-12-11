@@ -227,9 +227,7 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
                     e.preventDefault();
                     onResizeStart();
                 }}
-                onTouchStart={(e) => {
-                    // Prevent scrolling while resizing
-                    // e.preventDefault(); // Might block scrolling page? But sidebar is usually fixed 
+                onTouchStart={() => {
                     onResizeStart();
                 }}
             />
