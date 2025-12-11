@@ -221,16 +221,13 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
             </div>
 
             {isMobile && (
-                <div className="p-3 border-t border-gray-200 bg-white flex items-center justify-between shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
-                    <span className="text-xs font-medium text-gray-400">Settings</span>
-                    <div className="flex gap-2">
-                        <button onClick={onOpenSettings} className="p-2 bg-gray-100 rounded-full text-gray-600 active:bg-gray-200" title="Settings">
-                            <Settings size={20} />
-                        </button>
-                        <button onClick={() => setIsOpen(false)} className="p-2 bg-gray-100 rounded-full text-gray-600 active:bg-gray-200" title="Collapse Sidebar">
-                            <ChevronsLeft size={20} />
-                        </button>
-                    </div>
+                <div className="p-3 border-t border-gray-200 bg-white flex items-center gap-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
+                    <button onClick={onOpenSettings} className="p-3 bg-gray-100 rounded-full text-gray-600 active:bg-gray-200" title="Settings">
+                        <Settings size={22} />
+                    </button>
+                    <button onClick={() => setIsOpen(false)} className="p-3 bg-gray-100 rounded-full text-gray-600 active:bg-gray-200" title="Collapse Sidebar">
+                        <ChevronsLeft size={22} />
+                    </button>
                 </div>
             )}
 
