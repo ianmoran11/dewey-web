@@ -185,14 +185,16 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
                     </span>
                     <h2 className="font-bold text-lg text-gray-800 tracking-tight">Dewey</h2>
                 </div>
-                <div className="flex gap-1">
-                    <button onClick={onOpenSettings} className="p-2 hover:bg-gray-100 rounded-full text-gray-500" title="Settings">
-                        <Settings size={18} />
-                    </button>
-                    <button onClick={() => setIsOpen(false)} className="p-2 hover:bg-gray-100 rounded-full text-gray-500" title="Collapse Sidebar">
-                        <ChevronsLeft size={18} />
-                    </button>
-                </div>
+                {!isMobile && (
+                    <div className="flex gap-1">
+                        <button onClick={onOpenSettings} className="p-2 hover:bg-gray-100 rounded-full text-gray-500" title="Settings">
+                            <Settings size={18} />
+                        </button>
+                        <button onClick={() => setIsOpen(false)} className="p-2 hover:bg-gray-100 rounded-full text-gray-500" title="Collapse Sidebar">
+                            <ChevronsLeft size={18} />
+                        </button>
+                    </div>
+                )}
             </div>
             
             <div className="p-3 border-b border-gray-200 bg-gray-50/50">
@@ -217,6 +219,20 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
                     ))
                 )}
             </div>
+
+            {isMobile && (
+                <div className="p-3 border-t border-gray-200 bg-white flex items-center justify-between shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
+                    <span className="text-xs font-medium text-gray-400">Settings</span>
+                    <div className="flex gap-2">
+                        <button onClick={onOpenSettings} className="p-2 bg-gray-100 rounded-full text-gray-600 active:bg-gray-200" title="Settings">
+                            <Settings size={20} />
+                        </button>
+                        <button onClick={() => setIsOpen(false)} className="p-2 bg-gray-100 rounded-full text-gray-600 active:bg-gray-200" title="Collapse Sidebar">
+                            <ChevronsLeft size={20} />
+                        </button>
+                    </div>
+                </div>
+            )}
 
             <QueueStatus />
             
