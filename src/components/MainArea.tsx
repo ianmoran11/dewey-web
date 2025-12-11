@@ -71,17 +71,24 @@ export const MainArea = () => {
         );
     }
 
+    const cleanTitle = (text: string) => {
+        // Remove leading topic codes (e.g. "A. ", "1. ", "1.1 ") including uppercase/digits/punctuation at start
+        // Pattern: Start of line, followed by some combination of uppercase, digits, punctuation, then space
+        return text.replace(/^[\w\d\.\-\)]+\s+/, '').trim();
+    }
+
     const interpolatePrompt = async (promptTemplate: string, targetTopic: Topic) => {
-        let text = promptTemplate.replace(/{{topic}}/g, targetTopic.title);
+        const cleanedTitle = cleanTitle(targetTopic.title);
+        let text = promptTemplate.replace(/{{topic}}/g, cleanedTitle);
         
         if (text.includes('{{neighbors}}')) {
             const siblings = await getSiblings(targetTopic.parent_id, targetTopic.id);
-            text = text.replace(/{{neighbors}}/g, siblings.map(s => s.title).join(', '));
+            text = text.replace(/{{neighbors}}/g, siblings.map(s => cleanTitle(s.title)).join(', '));
         }
         
         if (text.includes('{{ancestors}}')) {
             const ancestors = await getAncestors(targetTopic.id);
-            text = text.replace(/{{ancestors}}/g, ancestors.map(a => a.title).join(' > '));
+            text = text.replace(/{{ancestors}}/g, ancestors.map(a => cleanTitle(a.title)).join(' > '));
         }
         
         return text;
