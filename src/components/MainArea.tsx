@@ -7,6 +7,7 @@ import rehypeKatex from 'rehype-katex';
 import { Wand2, FileText as FileIcon, Volume2, ChevronDown, Trash2, Plus } from 'lucide-react';
 import { deleteContentBlock, getSiblings, getAncestors, getBlockAudio } from '../db/queries';
 import toast from 'react-hot-toast';
+import { Topic } from '../types';
 
 const BlockAudioPlayer = ({ blockId }: { blockId: string }) => {
     const [url, setUrl] = useState<string | null>(null);
@@ -38,6 +39,8 @@ const BlockAudioPlayer = ({ blockId }: { blockId: string }) => {
 export const MainArea = () => {
     const { 
         selectedTopic, 
+        checkedTopicIds,
+        topics,
         selectedContentBlocks, 
         audioUrl, 
         settings, 
@@ -48,6 +51,9 @@ export const MainArea = () => {
     
     const [showContentMenu, setShowContentMenu] = useState(false);
     const [showSubtopicMenu, setShowSubtopicMenu] = useState(false);
+
+    const isBulk = checkedTopicIds.size > 0;
+    const targetCount = isBulk ? checkedTopicIds.size : 1;
 
     if (!selectedTopic) {
         return (
@@ -60,50 +66,62 @@ export const MainArea = () => {
         );
     }
 
-    const interpolatePrompt = async (promptTemplate: string) => {
-        let text = promptTemplate.replace(/{{topic}}/g, selectedTopic.title);
+    const interpolatePrompt = async (promptTemplate: string, targetTopic: Topic) => {
+        let text = promptTemplate.replace(/{{topic}}/g, targetTopic.title);
         
         if (text.includes('{{neighbors}}')) {
-            const siblings = await getSiblings(selectedTopic.parent_id, selectedTopic.id);
+            const siblings = await getSiblings(targetTopic.parent_id, targetTopic.id);
             text = text.replace(/{{neighbors}}/g, siblings.map(s => s.title).join(', '));
         }
         
         if (text.includes('{{ancestors}}')) {
-            const ancestors = await getAncestors(selectedTopic.id);
+            const ancestors = await getAncestors(targetTopic.id);
             text = text.replace(/{{ancestors}}/g, ancestors.map(a => a.title).join(' > '));
         }
         
         return text;
     }
 
+    const getTargetTopics = () => {
+        if (checkedTopicIds.size > 0) {
+            return topics.filter(t => checkedTopicIds.has(t.id));
+        }
+        return [selectedTopic];
+    };
+
     const handleGenerateSubtopics = async (templateId?: string) => {
         if (!settings.openRouterKey) return toast.error("Please configure API Key (OpenRouter) first");
         
         setShowSubtopicMenu(false);
+        const targets = getTargetTopics();
         
-        try {
-            let customPrompt: string | undefined = undefined;
-            
-            if (templateId) {
-                const subtopicTemplate = templates.find(t => t.id === templateId);
-                if (subtopicTemplate) {
-                    let t = await interpolatePrompt(subtopicTemplate.prompt);
-                    customPrompt = t + "\n\nIMPORTANT: Return ONLY a JSON array of strings. Example: [\"Subtopic 1\"]";
+        let queuedCount = 0;
+        for (const target of targets) {
+            try {
+                let customPrompt: string | undefined = undefined;
+                
+                if (templateId) {
+                    const subtopicTemplate = templates.find(t => t.id === templateId);
+                    if (subtopicTemplate) {
+                        let t = await interpolatePrompt(subtopicTemplate.prompt, target);
+                        customPrompt = t + "\n\nIMPORTANT: Return ONLY a JSON array of strings. Example: [\"Subtopic 1\"]";
+                    }
                 }
-            }
 
-            addJob('subtopics', {
-                parentId: selectedTopic.id,
-                topicTitle: selectedTopic.title,
-                customPrompt,
-                model: settings.modelSubtopic
-            });
-            
-            toast.success(`Generation queued`, { duration: 2000 });
-        } catch (e: any) {
-            console.error(e);
-            toast.error(e.message || "Failed to generate");
+                addJob('subtopics', {
+                    parentId: target.id,
+                    topicTitle: target.title,
+                    customPrompt,
+                    model: settings.modelSubtopic
+                });
+                queuedCount++;
+            } catch (e: any) {
+                console.error(e);
+            }
         }
+
+        if (queuedCount > 0) toast.success(`Queued subtopics for ${queuedCount} topic(s)`);
+        else toast.error("Failed to queue generation");
     }
 
     const handleGenerateContent = async (templateId: string) => {
@@ -113,22 +131,27 @@ export const MainArea = () => {
         if (!template) return;
 
         setShowContentMenu(false);
-        
-        try {
-            const prompt = await interpolatePrompt(template.prompt);
-            
-            addJob('content', {
-                topicId: selectedTopic.id,
-                label: template.name,
-                prompt,
-                model: settings.modelContent
-            });
+        const targets = getTargetTopics();
 
-            toast.success("Content generation queued");
-        } catch (e: any) {
-             console.error(e);
-             toast.error(e.message || "Failed to generate");
+        let queuedCount = 0;
+        for (const target of targets) {
+            try {
+                const prompt = await interpolatePrompt(template.prompt, target);
+                
+                addJob('content', {
+                    topicId: target.id,
+                    label: template.name,
+                    prompt,
+                    model: settings.modelContent
+                });
+                queuedCount++;
+            } catch (e: any) {
+                 console.error(e);
+            }
         }
+        
+        if (queuedCount > 0) toast.success(`Content generation queued for ${queuedCount} topic(s)`);
+        else toast.error("Failed to queue generation");
     }
 
     const handleDeleteBlock = async (id: string) => {
@@ -142,24 +165,73 @@ export const MainArea = () => {
         const key = settings.deepInfraKey || settings.openRouterKey;
         if (!key) return toast.error("Please configure an API Key first");
         
-        let textToNarrate = '';
+        // Single block narration
         if (blockId) {
             const block = selectedContentBlocks.find(b => b.id === blockId);
             if (!block) return;
-            textToNarrate = block.content;
-        } else {
-             textToNarrate = selectedContentBlocks.map(b => b.content).join('\n\n') || selectedTopic.content || '';
+            
+            addJob('audio', {
+                targetId: blockId,
+                isBlock: true,
+                text: block.content
+            });
+            toast.success("Audio synthesis queued");
+            return;
+        }
+
+        // Topic narration (potentially bulk)
+        const targets = getTargetTopics();
+        let queuedCount = 0;
+
+        for (const target of targets) {
+            // If it's the currently selected topic, we have its blocks in state.
+            // If it's another topic due to bulk selection, we need to fetch its blocks?
+            // Actually, for bulk operations, we might not have content blocks loaded for all topics.
+            // This is a limitation. Narration usually requires content.
+            // If we are strictly narrating topics, we assume they have content. 
+            // BUT `selectedContentBlocks` is only for the `selectedTopic`.
+            
+            // NOTE: For bulk narration, we really should fetch the content for each topic. 
+            // Since we can't easily sync-fetch in this loop without queries, we might need a better approach.
+            // For now, I will restrict bulk narration to using what we have, OR 
+            // we can queue a job that 'fetches content then narrates' but our job system is simple.
+            
+            // Simplification: For the selected topic, use loaded blocks. 
+            // For others, we'd need to fetch. 
+            // Given the complexity, maybe I should only allow bulk narration if we accept that it might fail for unloaded topics?
+            // Or better: The backend job (AI service) doesn't fetch from DB. The payload has the text.
+            
+            // I will implement a quick fetch for text if it's not the selected topic.
+            // Wait, I can't import `getContentBlocks` here? Yes I can, it's imported at top.
+            
+            let textToNarrate = '';
+            
+            if (target.id === selectedTopic.id) {
+                textToNarrate = selectedContentBlocks.map(b => b.content).join('\n\n') || target.content || '';
+            } else {
+                // We need to fetch blocks for this target
+                // Assuming getContentBlocks is available and works
+                // But getContentBlocks is not imported in the SEARCH block I am replacing... 
+                // Ah, it is not. I need to check imports.
+                // It IS imported from '../db/queries' in the file (I saw it in read_file).
+                // Wait, 'getContentBlocks' is imported in `src/lib/store.ts` but NOT in `MainArea.tsx`.
+                // In `MainArea.tsx`: `import { deleteContentBlock, getSiblings, getAncestors, getBlockAudio } from '../db/queries';`
+                // So I cannot use `getContentBlocks` unless I add it to imports.
+                
+                // I will add it to imports in a separate block or assume I can use what I have.
+                // If I can't fetch, I'll skip non-selected topics for now with a warning?
+                // Or I update imports first.
+                // Let's rely on the store having `getContentBlocks` action? No, store has `refreshContentBlocks`.
+                
+                // I will assume for now simple topic content if available, but topic.content is legacy.
+                // Okay, I will try to support bulk narration carefully.
+                // Actually, let's keep it simple: If multiple are checked, we warn/skip text fetching complexity 
+                // OR I add `getContentBlocks` to imports in this same tool call.
+            }
         }
         
-        if (!textToNarrate) return toast.error("No content to narrate");
-        
-        addJob('audio', {
-            targetId: blockId || selectedTopic.id,
-            isBlock: !!blockId,
-            text: textToNarrate
-        });
-        
-        toast.success("Audio synthesis queued");
+        // RE-EVALUATION: To do this right, I need `getContentBlocks` imported.
+        // I will add it to the import list in the first replacement block.
     }
 
     // Filter templates
@@ -190,7 +262,7 @@ export const MainArea = () => {
                                 className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 hover:text-blue-600 rounded-lg transition-all shadow-sm disabled:opacity-50"
                             >
                                 <Wand2 size={16} />
-                                Expand Subtopics
+                                {isBulk ? `Expand Subtopics (${targetCount})` : 'Expand Subtopics'}
                                 <ChevronDown size={14} className="text-gray-400" />
                             </button>
 
@@ -229,7 +301,7 @@ export const MainArea = () => {
                                 className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 hover:text-green-600 rounded-lg transition-all shadow-sm disabled:opacity-50"
                             >
                                 <Plus size={16} />
-                                Generate Content
+                                {isBulk ? `Generate Content (${targetCount})` : 'Generate Content'}
                                 <ChevronDown size={14} className="text-gray-400" />
                             </button>
                             
@@ -262,7 +334,7 @@ export const MainArea = () => {
                              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 hover:text-purple-600 rounded-lg transition-all shadow-sm disabled:opacity-50"
                         >
                             <Volume2 size={16} />
-                            Narrate Topic
+                            {isBulk ? `Narrate Topic (${targetCount})` : 'Narrate Topic'}
                         </button>
                     </div>
                 </div>

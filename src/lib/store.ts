@@ -20,6 +20,7 @@ interface AppState {
   topics: Topic[];
   selectedTopicId: string | null;
   selectedTopic: Topic | null;
+  checkedTopicIds: Set<string>;
   selectedContentBlocks: ContentBlock[];
   templates: Template[];
   audioUrl: string | null;
@@ -29,6 +30,7 @@ interface AppState {
 
   init: () => Promise<void>;
   selectTopic: (id: string | null) => Promise<void>;
+  setCheckedTopicIds: (ids: Set<string>) => void;
   refreshTopics: () => Promise<void>;
   refreshTemplates: () => Promise<void>;
   refreshContentBlocks: () => Promise<void>;
@@ -39,6 +41,7 @@ interface AppState {
   addJob: (type: JobType, payload: any) => void;
   removeJob: (id: string) => void;
   clearCompletedJobs: () => void;
+  cancelQueue: () => void;
   processQueue: () => Promise<void>;
 }
 
@@ -49,6 +52,7 @@ export const useStore = create<AppState>((set, get) => ({
   topics: [],
   selectedTopicId: null,
   selectedTopic: null,
+  checkedTopicIds: new Set(),
   selectedContentBlocks: [],
   templates: [],
   audioUrl: null,
@@ -74,6 +78,10 @@ export const useStore = create<AppState>((set, get) => ({
 
   clearCompletedJobs: () => {
     set((state) => ({ jobs: state.jobs.filter(j => j.status !== 'completed' && j.status !== 'failed') }));
+  },
+
+  cancelQueue: () => {
+    set((state) => ({ jobs: state.jobs.filter(j => j.status !== 'pending') }));
   },
 
   processQueue: async () => {
@@ -230,6 +238,8 @@ export const useStore = create<AppState>((set, get) => ({
       set({ isInitializing: false });
     }
   },
+
+  setCheckedTopicIds: (ids: Set<string>) => set({ checkedTopicIds: ids }),
 
   selectTopic: async (id: string | null) => {
     // Cleanup old audio url

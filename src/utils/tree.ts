@@ -47,3 +47,14 @@ export const buildTree = (topics: Topic[]): TopicNode[] => {
 
   return roots;
 };
+
+export const getAllDescendantIds = (node: TopicNode): string[] => {
+  const ids: string[] = [];
+  const stack = [node];
+  while (stack.length > 0) {
+      const current = stack.pop()!;
+      ids.push(current.id);
+      stack.push(...current.children);
+  }
+  return ids;
+};

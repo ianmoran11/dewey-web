@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../lib/store';
-import { buildTree } from '../utils/tree';
-import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2 } from 'lucide-react';
+import { buildTree, getAllDescendantIds } from '../utils/tree';
+import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2, X } from 'lucide-react';
 import { TopicNode } from '../types';
 
 const QueueStatus = () => {
     const jobs = useStore(s => s.jobs);
+    const cancelQueue = useStore(s => s.cancelQueue);
     
     // Only count pending or processing
     const activeJobs = jobs.filter(j => j.status === 'processing');
@@ -20,6 +21,16 @@ const QueueStatus = () => {
                     <Loader2 size={12} className="animate-spin text-blue-600" />
                     Background Tasks
                  </span>
+                 {pendingJobs.length > 0 && (
+                     <button 
+                        onClick={cancelQueue}
+                        className="text-xs text-red-600 hover:text-red-800 hover:bg-red-100 px-2 py-0.5 rounded transition-colors flex items-center gap-1"
+                        title="Cancel pending jobs"
+                     >
+                         <X size={12} />
+                         Cancel
+                     </button>
+                 )}
              </div>
              <div className="flex gap-4 text-xs font-medium text-blue-700 mt-2">
                  <span>Running: {activeJobs.length}</span>
@@ -33,11 +44,32 @@ const QueueStatus = () => {
 const TreeNode = ({ node, level, onSelect }: { node: TopicNode, level: number, onSelect: (id: string) => void }) => {
     const [expanded, setExpanded] = useState(false);
     const selectedTopicId = useStore(s => s.selectedTopicId);
+    const checkedTopicIds = useStore(s => s.checkedTopicIds);
+    const setCheckedTopicIds = useStore(s => s.setCheckedTopicIds);
     const jobs = useStore(s => s.jobs);
     const unreadTopics = useStore(s => s.unreadTopics);
     
     const hasChildren = node.children.length > 0;
     const isSelected = selectedTopicId === node.id;
+    const isChecked = checkedTopicIds.has(node.id);
+
+    const handleCheck = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        const newChecked = new Set(checkedTopicIds);
+        
+        // If has children, toggle all descendants
+        // Even if no children, logic holds (descendants=[node.id])
+        // But wait, getAllDescendantIds includes the node itself.
+        const descendants = getAllDescendantIds(node);
+        
+        if (isChecked) {
+            descendants.forEach(id => newChecked.delete(id));
+        } else {
+            descendants.forEach(id => newChecked.add(id));
+        }
+        
+        setCheckedTopicIds(newChecked);
+    };
 
     // Check if this topic is involved in any active/pending jobs
     const isQueued = jobs.some(j => 
@@ -67,6 +99,17 @@ const TreeNode = ({ node, level, onSelect }: { node: TopicNode, level: number, o
                 style={{ paddingLeft: isUnread || isQueued ? `${level * 16 + 8 - 4}px` : `${level * 16 + 8}px` }}
                 onClick={() => onSelect(node.id)}
             >
+                <div 
+                    className="mr-2 flex items-center justify-center p-0.5"
+                    onClick={handleCheck}
+                >
+                    <input 
+                        type="checkbox" 
+                        checked={isChecked} 
+                        readOnly 
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer w-3.5 h-3.5"
+                    />
+                </div>
                 <div 
                     className="mr-1 p-1 hover:bg-black/5 rounded cursor-pointer"
                     onClick={(e) => {
