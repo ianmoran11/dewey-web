@@ -7,7 +7,7 @@ import { buildTree, getAllDescendantIds } from '../utils/tree';
 interface MoveTopicModalProps {
     isOpen: boolean;
     onClose: () => void;
-    topicToMove: TopicNode | null;
+    topicsToMove: TopicNode[];
 }
 
 const TreeNode = ({ node, level, onSelect, selectedId, disabledIds }: { 
@@ -57,31 +57,27 @@ const TreeNode = ({ node, level, onSelect, selectedId, disabledIds }: {
     )
 }
 
-export const MoveTopicModal = ({ isOpen, onClose, topicToMove }: MoveTopicModalProps) => {
+export const MoveTopicModal = ({ isOpen, onClose, topicsToMove }: MoveTopicModalProps) => {
     const topics = useStore(s => s.topics);
     const moveTopic = useStore(s => s.moveTopic);
     const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
 
     const tree = useMemo(() => buildTree(topics), [topics]);
 
-    // IDs that cannot be selected (the topic itself and its descendants)
+    // IDs that cannot be selected (the topics themselves and their descendants)
     const disabledIds = useMemo(() => {
-        if (!topicToMove) return new Set<string>();
-        const descendants = getAllDescendantIds(topicToMove);
-        // Include self
-        return new Set(descendants); 
-        // Note: getAllDescendantIds includes self in the current implementation in tree.ts?
-        // Let's verify tree.ts... "const stack = [node]; ... ids.push(current.id);" Yes, it includes self.
-    }, [topicToMove]);
+        if (topicsToMove.length === 0) return new Set<string>();
+        const ids = new Set<string>();
+        topicsToMove.forEach(t => {
+            const descendants = getAllDescendantIds(t);
+            descendants.forEach(id => ids.add(id));
+        });
+        return ids;
+    }, [topicsToMove]);
 
-    if (!isOpen || !topicToMove) return null;
+    if (!isOpen || topicsToMove.length === 0) return null;
 
     const handleMove = async () => {
-        // null selectedTargetId means root? Or do we need explicit root selection?
-        // Let's treat explicit selection required. If they want root, they need a way to select "Root".
-        
-        // Actually, let's allow moving to Root by having a special "Root" item at top
-        
         try {
             // If selectedTargetId is "root", then parent_id is null
             const parentId = selectedTargetId === 'root' ? null : selectedTargetId;
@@ -89,7 +85,11 @@ export const MoveTopicModal = ({ isOpen, onClose, topicToMove }: MoveTopicModalP
             // Prevent moving to self or children (already disabled in UI, but safe check)
             if (parentId && disabledIds.has(parentId)) return;
 
-            await moveTopic(topicToMove.id, parentId);
+            for (const topic of topicsToMove) {
+                // Skip if moving into itself (though UI prevents this)
+                if (parentId === topic.id) continue;
+                await moveTopic(topic.id, parentId);
+            }
             onClose();
         } catch (e) {
             console.error(e);
@@ -102,7 +102,9 @@ export const MoveTopicModal = ({ isOpen, onClose, topicToMove }: MoveTopicModalP
                 <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50 flex-shrink-0">
                     <div>
                         <h2 className="font-semibold text-gray-900">Move Topic</h2>
-                        <p className="text-xs text-gray-500 truncate max-w-[200px]">Moving: {topicToMove.title}</p>
+                        <p className="text-xs text-gray-500 truncate max-w-[200px]">
+                            Moving: {topicsToMove.length === 1 ? topicsToMove[0].title : `${topicsToMove.length} topics`}
+                        </p>
                     </div>
                     <button onClick={onClose} className="p-1 hover:bg-gray-200 rounded-full text-gray-500 transition-colors">
                         <X size={20} />

@@ -206,7 +206,9 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
     const [modalOpen, setModalOpen] = useState(false);
     const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
     const [targetNode, setTargetNode] = useState<TopicNode | null>(null);
+    const [moveTargets, setMoveTargets] = useState<TopicNode[]>([]);
     const [moveModalOpen, setMoveModalOpen] = useState(false);
+    const checkedTopicIds = useStore(s => s.checkedTopicIds);
 
     useEffect(() => {
         const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -220,9 +222,26 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
     };
 
     const handleAction = async (action: string, node: TopicNode) => {
+        const isChecked = checkedTopicIds.has(node.id);
+        const targets = isChecked 
+            ? topics.filter(t => checkedTopicIds.has(t.id)) 
+            : [node];
+        
+        // Safety: Recursive check to ensure we found the nodes in the flat list
+        // Note: 'topics' from store is flat list. 'node' is from tree.
+        // We need robust list of target nodes for move (because move needs children checks).
+        // For delete, IDs are enough.
+        
         if (action === 'delete') {
-            if (confirm(`Are you sure you want to delete "${node.title}" and all its content?`)) {
-                await deleteTopic(node.id);
+            const count = targets.length;
+            const message = count > 1 
+                ? `Delete ${count} topics and all their contents?` 
+                : `Delete "${node.title}" and all its contents?`;
+                
+            if (confirm(message)) {
+                for (const t of targets) {
+                    await deleteTopic(t.id);
+                }
             }
         } else if (action === 'add') {
             setModalMode('create');
@@ -233,7 +252,45 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
             setTargetNode(node);
             setModalOpen(true);
         } else if (action === 'move') {
-            setTargetNode(node);
+            // For move, we need the actual node objects with hierarchy for calculations?
+            // Actually, MoveTopicModal just takes TopicNode root list to build tree, 
+            // and topicsToMove list to calculate disabled IDs.
+            // We can pass the flat topics we found.
+            // However, MoveTopicModal expects TopicNode[] (recursive structure) or Topic[]?
+            // Let's check MoveTopicModal props definition. It imports TopicNode.
+            // But we are passing flat topics from 'topics.filter'.
+            // They need to be converted to TopicNode if the modal expects full trees, 
+            // OR the modal should accept Topic[] and build what it needs.
+            // MoveTopicModal prop is `topicsToMove: TopicNode[]`.
+            // But checking disable logic: `getAllDescendantIds(t)`. This requires the node to have `children` populated.
+            // Basic `Topic` from store doesn't have `children`.
+            // We need to find the Corresponding TreeNodes in the `tree`.
+            
+            // Helper to match IDs to tree nodes
+            const findNodes = (nodes: TopicNode[], ids: Set<string>): TopicNode[] => {
+                let found: TopicNode[] = [];
+                for (const n of nodes) {
+                    if (ids.has(n.id)) found.push(n);
+                    if (n.children) found = found.concat(findNodes(n.children, ids));
+                }
+                return found;
+            };
+            
+            const tree = buildTree(topics); // We need a fresh tree or reuse memoized 'tree'?
+            // We can search in the current 'tree' memo.
+            // Note: 'tree' in component scope is memoized from filteredTopics.
+            // We should use the FULL tree for finding drag targets to be safe, but filtered tree might assume user only sees those.
+            // Safe bet: Rebuild full tree for logic or just traverse the existing `tree` if search is empty.
+            // If search is active, `tree` is partial. We might miss selecting a hidden checked node?
+            // Ideally we check `topics` flat list, build a full tree, and find nodes.
+            // Or simpler: getAllDescendantIds uses `children`. 
+            // We really need the full hierarchy to determine descendants.
+            // Let's build a temporary full tree to find the node objects with children.
+            
+            const fullTree = buildTree(topics);
+            const targetNodes = findNodes(fullTree, new Set(targets.map(t => t.id)));
+            
+            setMoveTargets(targetNodes);
             setMoveModalOpen(true);
         }
     };
@@ -324,7 +381,7 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
             <MoveTopicModal
                 isOpen={moveModalOpen}
                 onClose={() => setMoveModalOpen(false)}
-                topicToMove={targetNode}
+                topicsToMove={moveTargets}
             />
 
             {isMobile && (
