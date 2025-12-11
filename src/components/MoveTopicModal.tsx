@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { X, ChevronRight, ChevronDown, Folder, FileText } from 'lucide-react';
 import { useStore } from '../lib/store';
-import { TopicNode, Topic } from '../types';
+import { TopicNode } from '../types';
 import { buildTree, getAllDescendantIds } from '../utils/tree';
 
 interface MoveTopicModalProps {

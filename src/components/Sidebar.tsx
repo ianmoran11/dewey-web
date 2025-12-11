@@ -49,7 +49,6 @@ const TreeNode = ({ node, level, onSelect, onAction }: { node: TopicNode, level:
     const selectedTopicId = useStore(s => s.selectedTopicId);
     const checkedTopicIds = useStore(s => s.checkedTopicIds);
     const setCheckedTopicIds = useStore(s => s.setCheckedTopicIds);
-    const [showMenu, setShowMenu] = useState(false);
     
     const expanded = expandedTopicIds.has(node.id);
     const jobs = useStore(s => s.jobs);
@@ -104,8 +103,6 @@ const TreeNode = ({ node, level, onSelect, onAction }: { node: TopicNode, level:
                 className={`flex items-center py-1 px-2 cursor-pointer transition-colors select-none group/item ${bgClasses}`}
                 style={{ paddingLeft: isUnread || isQueued ? `${level * 16 + 8 - 4}px` : `${level * 16 + 8}px` }}
                 onClick={() => onSelect(node.id)}
-                onMouseEnter={() => setShowMenu(true)}
-                onMouseLeave={() => setShowMenu(false)}
             >
                 <div 
                     className="mr-2 flex items-center justify-center p-0.5"
@@ -198,7 +195,6 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
     const topics = useStore(s => s.topics);
     const selectTopic = useStore(s => s.selectTopic);
     const deleteTopic = useStore(s => s.deleteTopic);
-    const createManualTopic = useStore(s => s.createManualTopic);
     const [search, setSearch] = useState('');
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
     
@@ -275,17 +271,6 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
                 }
                 return found;
             };
-            
-            const tree = buildTree(topics); // We need a fresh tree or reuse memoized 'tree'?
-            // We can search in the current 'tree' memo.
-            // Note: 'tree' in component scope is memoized from filteredTopics.
-            // We should use the FULL tree for finding drag targets to be safe, but filtered tree might assume user only sees those.
-            // Safe bet: Rebuild full tree for logic or just traverse the existing `tree` if search is empty.
-            // If search is active, `tree` is partial. We might miss selecting a hidden checked node?
-            // Ideally we check `topics` flat list, build a full tree, and find nodes.
-            // Or simpler: getAllDescendantIds uses `children`. 
-            // We really need the full hierarchy to determine descendants.
-            // Let's build a temporary full tree to find the node objects with children.
             
             const fullTree = buildTree(topics);
             const targetNodes = findNodes(fullTree, new Set(targets.map(t => t.id)));
