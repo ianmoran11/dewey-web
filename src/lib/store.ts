@@ -21,6 +21,7 @@ interface AppState {
   selectedTopicId: string | null;
   selectedTopic: Topic | null;
   checkedTopicIds: Set<string>;
+  expandedTopicIds: Set<string>;
   selectedContentBlocks: ContentBlock[];
   templates: Template[];
   audioUrl: string | null;
@@ -31,6 +32,7 @@ interface AppState {
   init: () => Promise<void>;
   selectTopic: (id: string | null) => Promise<void>;
   setCheckedTopicIds: (ids: Set<string>) => void;
+  toggleTopicExpansion: (id: string) => void;
   refreshTopics: () => Promise<void>;
   refreshTemplates: () => Promise<void>;
   refreshContentBlocks: () => Promise<void>;
@@ -53,6 +55,7 @@ export const useStore = create<AppState>((set, get) => ({
   selectedTopicId: null,
   selectedTopic: null,
   checkedTopicIds: new Set(),
+  expandedTopicIds: new Set(),
   selectedContentBlocks: [],
   templates: [],
   audioUrl: null,
@@ -240,6 +243,16 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setCheckedTopicIds: (ids: Set<string>) => set({ checkedTopicIds: ids }),
+
+  toggleTopicExpansion: (id: string) => set((state) => {
+      const newExpanded = new Set(state.expandedTopicIds);
+      if (newExpanded.has(id)) {
+          newExpanded.delete(id);
+      } else {
+          newExpanded.add(id);
+      }
+      return { expandedTopicIds: newExpanded };
+  }),
 
   selectTopic: async (id: string | null) => {
     // Cleanup old audio url

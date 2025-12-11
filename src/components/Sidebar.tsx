@@ -42,10 +42,13 @@ const QueueStatus = () => {
 }
 
 const TreeNode = ({ node, level, onSelect }: { node: TopicNode, level: number, onSelect: (id: string) => void }) => {
-    const [expanded, setExpanded] = useState(false);
+    const expandedTopicIds = useStore(s => s.expandedTopicIds);
+    const toggleTopicExpansion = useStore(s => s.toggleTopicExpansion);
     const selectedTopicId = useStore(s => s.selectedTopicId);
     const checkedTopicIds = useStore(s => s.checkedTopicIds);
     const setCheckedTopicIds = useStore(s => s.setCheckedTopicIds);
+    
+    const expanded = expandedTopicIds.has(node.id);
     const jobs = useStore(s => s.jobs);
     const unreadTopics = useStore(s => s.unreadTopics);
     
@@ -114,7 +117,7 @@ const TreeNode = ({ node, level, onSelect }: { node: TopicNode, level: number, o
                     className="mr-1 p-1 hover:bg-black/5 rounded cursor-pointer"
                     onClick={(e) => {
                         e.stopPropagation();
-                        setExpanded(!expanded);
+                        toggleTopicExpansion(node.id);
                     }}
                 >
                     {hasChildren ? (expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : <span className="w-3.5 h-3.5 inline-block"/>}
