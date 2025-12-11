@@ -52,6 +52,7 @@ export const MainArea = () => {
     
     const [showContentMenu, setShowContentMenu] = useState(false);
     const [showSubtopicMenu, setShowSubtopicMenu] = useState(false);
+    const [selection, setSelection] = useState('');
     
     // Edit Modal State
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -59,6 +60,16 @@ export const MainArea = () => {
 
     const isBulk = checkedTopicIds.size > 0;
     const targetCount = isBulk ? checkedTopicIds.size : 1;
+
+    // Handle text selection
+    React.useEffect(() => {
+        const handleSelectionChange = () => {
+            const text = window.getSelection()?.toString() || '';
+            setSelection(text);
+        };
+        document.addEventListener('selectionchange', handleSelectionChange);
+        return () => document.removeEventListener('selectionchange', handleSelectionChange);
+    }, []);
 
     if (!selectedTopic) {
         return (
@@ -80,6 +91,9 @@ export const MainArea = () => {
     const interpolatePrompt = async (promptTemplate: string, targetTopic: Topic) => {
         const cleanedTitle = cleanTitle(targetTopic.title);
         let text = promptTemplate.replace(/{{topic}}/g, cleanedTitle);
+        
+        const currentSelection = window.getSelection()?.toString() || '';
+        text = text.replace(/{{selection}}/g, currentSelection);
         
         if (text.includes('{{neighbors}}')) {
             const siblings = await getSiblings(targetTopic.parent_id, targetTopic.id);
@@ -293,18 +307,26 @@ export const MainArea = () => {
                         
                         <div className="relative">
                              <button 
+                                onMouseDown={(e) => e.preventDefault()} // Prevent losing focus/selection
                                 onClick={() => setShowContentMenu(!showContentMenu)} 
-                                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 hover:text-green-600 rounded-lg transition-all shadow-sm disabled:opacity-50"
+                                className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border rounded-lg transition-all shadow-sm disabled:opacity-50 ${
+                                    selection ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50 hover:text-green-600'
+                                }`}
                             >
                                 <Plus size={16} />
-                                {isBulk ? `Generate Content (${targetCount})` : 'Generate Content'}
-                                <ChevronDown size={14} className="text-gray-400" />
+                                {isBulk ? `Generate (${targetCount})` : selection ? 'Generate from Selection' : 'Generate Content'}
+                                <ChevronDown size={14} className={selection ? 'text-green-500' : 'text-gray-400'} />
                             </button>
                             
                             {showContentMenu && (
                                 <>
                                     <div className="fixed inset-0 z-10" onClick={() => setShowContentMenu(false)}></div>
                                     <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-20 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+                                        {selection && (
+                                            <div className="px-3 py-1.5 text-xs text-green-600 bg-green-50 border-b border-green-100 italic truncate mb-1">
+                                                "{selection.substring(0, 30)}..."
+                                            </div>
+                                        )}
                                         <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider bg-gray-50 border-b border-gray-50 mb-1">Select Template</div>
                                         {contentTemplates.length === 0 ? (
                                             <div className="px-4 py-2 text-sm text-gray-500">No content templates</div>
