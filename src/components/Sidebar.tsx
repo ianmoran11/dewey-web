@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useStore } from '../lib/store';
 import { buildTree, getAllDescendantIds } from '../utils/tree';
 import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2, X } from 'lucide-react';
@@ -145,6 +145,18 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
     const topics = useStore(s => s.topics);
     const selectTopic = useStore(s => s.selectTopic);
     const [search, setSearch] = useState('');
+    const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+    useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    const handleSelectTopic = (id: string) => {
+        selectTopic(id);
+        if (isMobile) setIsOpen(false);
+    };
     
     const filteredTopics = useMemo(() => {
         if (!search) return topics;
@@ -163,8 +175,8 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
     
     return (
         <div 
-            className="h-full bg-gray-50 border-r border-gray-200 flex flex-col flex-shrink-0 relative"
-            style={{ width }}
+            className={`h-full bg-gray-50 border-r border-gray-200 flex flex-col flex-shrink-0 transition-all z-40 ${isMobile ? 'fixed inset-0 w-full' : 'relative'}`}
+            style={isMobile ? undefined : { width }}
         >
             <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-white shadow-sm z-10">
                 <div className="flex items-center">
@@ -201,7 +213,7 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
                     <div className="text-center py-8 text-gray-400 text-sm">No topics found</div>
                 ) : (
                     tree.map(node => (
-                        <TreeNode key={node.id} node={node} level={0} onSelect={selectTopic} />
+                        <TreeNode key={node.id} node={node} level={0} onSelect={handleSelectTopic} />
                     ))
                 )}
             </div>
@@ -210,9 +222,14 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
             
             {/* Resize Handle */}
             <div 
-                className="absolute right-0 top-0 w-1 h-full cursor-col-resize hover:bg-blue-400 z-50 transition-colors opacity-0 hover:opacity-100 delay-75"
+                className="absolute right-0 top-0 w-1 h-full cursor-col-resize hover:bg-blue-400 z-50 transition-colors opacity-0 hover:opacity-100 delay-75 md:block hidden"
                 onMouseDown={(e) => {
                     e.preventDefault();
+                    onResizeStart();
+                }}
+                onTouchStart={(e) => {
+                    // Prevent scrolling while resizing
+                    // e.preventDefault(); // Might block scrolling page? But sidebar is usually fixed 
                     onResizeStart();
                 }}
             />

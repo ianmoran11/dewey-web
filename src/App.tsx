@@ -30,14 +30,27 @@ function App() {
     }
   }, [isResizing]);
 
+  const resizeTouch = useCallback((e: TouchEvent) => {
+    if (isResizing) {
+        const newWidth = e.touches[0].clientX;
+        if (newWidth > 200 && newWidth < 800) {
+            setSidebarWidth(newWidth);
+        }
+    }
+  }, [isResizing]);
+
   useEffect(() => {
     window.addEventListener("mousemove", resize);
     window.addEventListener("mouseup", stopResizing);
+    window.addEventListener("touchmove", resizeTouch);
+    window.addEventListener("touchend", stopResizing);
     return () => {
       window.removeEventListener("mousemove", resize);
       window.removeEventListener("mouseup", stopResizing);
+      window.removeEventListener("touchmove", resizeTouch);
+      window.removeEventListener("touchend", stopResizing);
     };
-  }, [resize, stopResizing]);
+  }, [resize, stopResizing, resizeTouch]);
 
   useEffect(() => {
     init();
@@ -67,7 +80,7 @@ function App() {
       {!isSidebarOpen && (
         <button 
           onClick={() => setIsSidebarOpen(true)}
-          className="absolute top-6 left-6 z-50 p-2 bg-white border border-gray-200 rounded-lg shadow-md text-gray-600 hover:text-blue-600 hover:bg-gray-50 transition-all"
+          className="fixed bottom-6 left-6 z-50 p-3 bg-white border border-gray-200 rounded-full shadow-lg text-gray-600 hover:text-blue-600 hover:bg-gray-50 transition-all md:absolute md:top-6 md:left-6 md:bottom-auto md:shadow-md md:rounded-lg md:p-2"
           title="Open Sidebar"
         >
           <Menu size={20} />
