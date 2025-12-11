@@ -4,7 +4,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
-import { Wand2, FileText as FileIcon, Volume2, ChevronDown, Trash2, Plus } from 'lucide-react';
+import { Wand2, FileText as FileIcon, Volume2, ChevronDown, Trash2, Plus, Edit2 } from 'lucide-react';
+import { TopicModal } from './TopicModal';
 import { deleteContentBlock, getSiblings, getAncestors, getBlockAudio } from '../db/queries';
 import toast from 'react-hot-toast';
 import { Topic } from '../types';
@@ -51,6 +52,10 @@ export const MainArea = () => {
     
     const [showContentMenu, setShowContentMenu] = useState(false);
     const [showSubtopicMenu, setShowSubtopicMenu] = useState(false);
+    
+    // Edit Modal State
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const deleteTopic = useStore(s => s.deleteTopic);
 
     const isBulk = checkedTopicIds.size > 0;
     const targetCount = isBulk ? checkedTopicIds.size : 1;
@@ -161,6 +166,12 @@ export const MainArea = () => {
         }
     }
 
+    const handleDeleteTopic = async () => {
+        if (confirm(`Delete '${selectedTopic.title}' and all its contents? This cannot be undone.`)) {
+            await deleteTopic(selectedTopic.id);
+        }
+    }
+
     const handleGenerateAudio = async (blockId?: string) => {
         const key = settings.deepInfraKey || settings.openRouterKey;
         if (!key) return toast.error("Please configure an API Key first");
@@ -223,6 +234,13 @@ export const MainArea = () => {
                         <h1 className="text-4xl font-bold text-gray-900 tracking-tight leading-tight">
                             {selectedTopic.title}
                         </h1>
+                        <button 
+                            onClick={() => setIsEditModalOpen(true)}
+                            className="ml-2 p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="Edit Topic"
+                        >
+                            <Edit2 size={20} />
+                        </button>
                     </div>
                     
                     {/* Action Bar */}
@@ -307,8 +325,25 @@ export const MainArea = () => {
                             <Volume2 size={16} />
                             {isBulk ? `Narrate Topic (${targetCount})` : 'Narrate Topic'}
                         </button>
+
+                        {!isBulk && (
+                            <button 
+                                onClick={handleDeleteTopic}
+                                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-200 hover:bg-red-50 hover:border-red-300 rounded-lg transition-all shadow-sm ml-auto"
+                            >
+                                <Trash2 size={16} />
+                                Delete
+                            </button>
+                        )}
                     </div>
                 </div>
+
+                <TopicModal 
+                    isOpen={isEditModalOpen}
+                    onClose={() => setIsEditModalOpen(false)}
+                    mode="edit"
+                    initialData={{ id: selectedTopic.id, title: selectedTopic.title, code: selectedTopic.code }}
+                />
 
                 {/* Audio Player */}
                 {audioUrl && (

@@ -1,8 +1,9 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useStore } from '../lib/store';
 import { buildTree, getAllDescendantIds } from '../utils/tree';
-import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2, X } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2, X, MoreHorizontal, Plus, Trash2, Edit2 } from 'lucide-react';
 import { TopicNode } from '../types';
+import { TopicModal } from './TopicModal';
 
 const QueueStatus = () => {
     const jobs = useStore(s => s.jobs);
@@ -41,12 +42,13 @@ const QueueStatus = () => {
     )
 }
 
-const TreeNode = ({ node, level, onSelect }: { node: TopicNode, level: number, onSelect: (id: string) => void }) => {
+const TreeNode = ({ node, level, onSelect, onAction }: { node: TopicNode, level: number, onSelect: (id: string) => void, onAction: (action: string, node: TopicNode) => void }) => {
     const expandedTopicIds = useStore(s => s.expandedTopicIds);
     const toggleTopicExpansion = useStore(s => s.toggleTopicExpansion);
     const selectedTopicId = useStore(s => s.selectedTopicId);
     const checkedTopicIds = useStore(s => s.checkedTopicIds);
     const setCheckedTopicIds = useStore(s => s.setCheckedTopicIds);
+    const [showMenu, setShowMenu] = useState(false);
     
     const expanded = expandedTopicIds.has(node.id);
     const jobs = useStore(s => s.jobs);
@@ -96,11 +98,13 @@ const TreeNode = ({ node, level, onSelect }: { node: TopicNode, level: number, o
     }
 
     return (
-        <div>
+        <div className="relative group">
             <div 
-                className={`flex items-center py-1 px-2 cursor-pointer transition-colors select-none ${bgClasses}`}
+                className={`flex items-center py-1 px-2 cursor-pointer transition-colors select-none group/item ${bgClasses}`}
                 style={{ paddingLeft: isUnread || isQueued ? `${level * 16 + 8 - 4}px` : `${level * 16 + 8}px` }}
                 onClick={() => onSelect(node.id)}
+                onMouseEnter={() => setShowMenu(true)}
+                onMouseLeave={() => setShowMenu(false)}
             >
                 <div 
                     className="mr-2 flex items-center justify-center p-0.5"
@@ -128,9 +132,48 @@ const TreeNode = ({ node, level, onSelect }: { node: TopicNode, level: number, o
                 {/* Icons for status */}
                 {isQueued && <Loader2 size={12} className="animate-spin text-yellow-600 ml-2" />}
                 {isUnread && <div className="w-2 h-2 rounded-full bg-green-500 ml-2" />}
+
+                {/* Actions Menu Trigger */}
+                <div className="ml-2 opacity-0 group-hover/item:opacity-100 transition-opacity">
+                    <div className="relative">
+                        <button 
+                            className="p-1 hover:bg-gray-300 rounded text-gray-500"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                // We are using hover state to show menu content but click to trigger simple actions or just use menu component
+                                // For simplicity: separate buttons
+                            }}
+                        >
+                            <MoreHorizontal size={14} />
+                        </button>
+                        
+                        {/* Dropdown Menu */}
+                        <div className="absolute right-0 top-full mt-1 w-32 bg-white rounded-lg shadow-xl border border-gray-100 py-1 z-50 hidden group-hover/item:block">
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); onAction('add', node); }}
+                                className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-2"
+                            >
+                                <Plus size={12} /> Add Child
+                            </button>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); onAction('edit', node); }}
+                                className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                            >
+                                <Edit2 size={12} /> Rename
+                            </button>
+                            <div className="my-1 border-t border-gray-100"></div>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); onAction('delete', node); }}
+                                className="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 flex items-center gap-2"
+                            >
+                                <Trash2 size={12} /> Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
             {expanded && hasChildren && node.children.map(child => (
-                <TreeNode key={child.id} node={child} level={level + 1} onSelect={onSelect} />
+                <TreeNode key={child.id} node={child} level={level + 1} onSelect={onSelect} onAction={onAction} />
             ))}
         </div>
     )
@@ -147,8 +190,15 @@ interface SidebarProps {
 export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStart }: SidebarProps) => {
     const topics = useStore(s => s.topics);
     const selectTopic = useStore(s => s.selectTopic);
+    const deleteTopic = useStore(s => s.deleteTopic);
+    const createManualTopic = useStore(s => s.createManualTopic);
     const [search, setSearch] = useState('');
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+    
+    // Modal State
+    const [modalOpen, setModalOpen] = useState(false);
+    const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
+    const [targetNode, setTargetNode] = useState<TopicNode | null>(null);
 
     useEffect(() => {
         const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -160,6 +210,28 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
         selectTopic(id);
         if (isMobile) setIsOpen(false);
     };
+
+    const handleAction = async (action: string, node: TopicNode) => {
+        if (action === 'delete') {
+            if (confirm(`Are you sure you want to delete "${node.title}" and all its content?`)) {
+                await deleteTopic(node.id);
+            }
+        } else if (action === 'add') {
+            setModalMode('create');
+            setTargetNode(node);
+            setModalOpen(true);
+        } else if (action === 'edit') {
+            setModalMode('edit');
+            setTargetNode(node);
+            setModalOpen(true);
+        }
+    };
+
+    const handleCreateRoot = () => {
+        setModalMode('create');
+        setTargetNode(null);
+        setModalOpen(true);
+    }
     
     const filteredTopics = useMemo(() => {
         if (!search) return topics;
@@ -200,28 +272,43 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
                 )}
             </div>
             
-            <div className="p-3 border-b border-gray-200 bg-gray-50/50">
-                <div className="relative">
+            <div className="p-3 border-b border-gray-200 bg-gray-50/50 flex gap-2">
+                <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
                     <input 
                         type="text" 
-                        placeholder="Search topics..." 
+                        placeholder="Search..." 
                         className="w-full pl-9 pr-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm"
                         value={search}
                         onChange={e => setSearch(e.target.value)}
                     />
                 </div>
+                <button 
+                    onClick={handleCreateRoot}
+                    className="p-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-50 text-gray-600 shadow-sm"
+                    title="Add Root Topic"
+                >
+                    <Plus size={18} />
+                </button>
             </div>
             
-            <div className="flex-1 overflow-auto py-2 custom-scrollbar">
+            <div className="flex-1 overflow-auto py-2 custom-scrollbar pb-20">
                 {tree.length === 0 ? (
                     <div className="text-center py-8 text-gray-400 text-sm">No topics found</div>
                 ) : (
                     tree.map(node => (
-                        <TreeNode key={node.id} node={node} level={0} onSelect={handleSelectTopic} />
+                        <TreeNode key={node.id} node={node} level={0} onSelect={handleSelectTopic} onAction={handleAction} />
                     ))
                 )}
             </div>
+
+            <TopicModal 
+                isOpen={modalOpen} 
+                onClose={() => setModalOpen(false)} 
+                mode={modalMode} 
+                parentId={targetNode?.id || null} 
+                initialData={modalMode === 'edit' && targetNode ? { id: targetNode.id, title: targetNode.title, code: targetNode.code } : undefined}
+            />
 
             {isMobile && (
                 <div className="p-3 border-t border-gray-200 bg-white flex items-center gap-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">

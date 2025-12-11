@@ -31,6 +31,17 @@ export const updateTopicContent = async (id: string, content: string) => {
   await sql`UPDATE topics SET content = ${content} WHERE id = ${id}`;
 };
 
+export const updateTopic = async (topic: Partial<Topic> & { id: string }) => {
+    // Only update allowed fields
+    if (topic.title !== undefined && topic.code !== undefined) {
+        await sql`UPDATE topics SET title = ${topic.title}, code = ${topic.code} WHERE id = ${topic.id}`;
+    } else if (topic.title !== undefined) {
+        await sql`UPDATE topics SET title = ${topic.title} WHERE id = ${topic.id}`;
+    } else if (topic.code !== undefined) {
+        await sql`UPDATE topics SET code = ${topic.code} WHERE id = ${topic.id}`;
+    }
+}
+
 export const saveTopicAudio = async (id: string, audioBlob: Blob) => {
   const buffer = await audioBlob.arrayBuffer();
   const data = new Uint8Array(buffer);

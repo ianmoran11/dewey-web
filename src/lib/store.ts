@@ -3,7 +3,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { Topic, Settings, Template, ContentBlock, Job, JobType } from '../types';
 import { 
     getTopics, getTopic, getAudio, getTemplates, getContentBlocks,
-    createTopic, createContentBlock, saveTopicAudio, saveBlockAudio
+    createTopic, createContentBlock, saveTopicAudio, saveBlockAudio,
+    updateTopic, deleteTopic
 } from '../db/queries';
 import { generateSubtopics, generateAIContent, generateAudio } from '../services/ai';
 import { initDB, getSettings, saveSetting } from '../db/client';
@@ -38,6 +39,10 @@ interface AppState {
   refreshContentBlocks: () => Promise<void>;
   updateSetting: (key: keyof Settings, value: string) => Promise<void>;
   setLoading: (loading: boolean) => void;
+
+  createManualTopic: (parentId: string | null, title: string, code?: string) => Promise<void>;
+  updateTopicDetails: (id: string, title: string, code?: string) => Promise<void>;
+  deleteTopic: (id: string) => Promise<void>;
   
   // Job Queue Actions
   addJob: (type: JobType, payload: any) => void;
@@ -311,4 +316,37 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setLoading: (loading: boolean) => set({ isLoading: loading }),
+
+  createManualTopic: async (parentId: string | null, title: string, code?: string) => {
+      await createTopic({
+          id: uuidv4(),
+          parent_id: parentId,
+          title,
+          code,
+          has_audio: false,
+          created_at: Date.now()
+      });
+      await get().refreshTopics();
+  },
+
+  updateTopicDetails: async (id: string, title: string, code?: string) => {
+      await updateTopic({
+          id,
+          title,
+          code
+      });
+      await get().refreshTopics();
+      if (get().selectedTopicId === id) {
+          const updated = await getTopic(id);
+          set({ selectedTopic: updated });
+      }
+  },
+
+  deleteTopic: async (id: string) => {
+      await deleteTopic(id);
+      await get().refreshTopics();
+      if (get().selectedTopicId === id) {
+          get().selectTopic(null);
+      }
+  }
 }));
