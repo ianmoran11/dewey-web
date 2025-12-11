@@ -1,9 +1,10 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useStore } from '../lib/store';
 import { buildTree, getAllDescendantIds } from '../utils/tree';
-import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2, X, MoreHorizontal, Plus, Trash2, Edit2 } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2, X, MoreHorizontal, Plus, Trash2, Edit2, ArrowRight } from 'lucide-react';
 import { TopicNode } from '../types';
 import { TopicModal } from './TopicModal';
+import { MoveTopicModal } from './MoveTopicModal';
 
 const QueueStatus = () => {
     const jobs = useStore(s => s.jobs);
@@ -161,6 +162,12 @@ const TreeNode = ({ node, level, onSelect, onAction }: { node: TopicNode, level:
                             >
                                 <Edit2 size={12} /> Rename
                             </button>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); onAction('move', node); }}
+                                className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                            >
+                                <ArrowRight size={12} /> Move
+                            </button>
                             <div className="my-1 border-t border-gray-100"></div>
                             <button 
                                 onClick={(e) => { e.stopPropagation(); onAction('delete', node); }}
@@ -199,6 +206,7 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
     const [modalOpen, setModalOpen] = useState(false);
     const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
     const [targetNode, setTargetNode] = useState<TopicNode | null>(null);
+    const [moveModalOpen, setMoveModalOpen] = useState(false);
 
     useEffect(() => {
         const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -224,6 +232,9 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
             setModalMode('edit');
             setTargetNode(node);
             setModalOpen(true);
+        } else if (action === 'move') {
+            setTargetNode(node);
+            setMoveModalOpen(true);
         }
     };
 
@@ -308,6 +319,12 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
                 mode={modalMode} 
                 parentId={targetNode?.id || null} 
                 initialData={modalMode === 'edit' && targetNode ? { id: targetNode.id, title: targetNode.title, code: targetNode.code } : undefined}
+            />
+
+            <MoveTopicModal
+                isOpen={moveModalOpen}
+                onClose={() => setMoveModalOpen(false)}
+                topicToMove={targetNode}
             />
 
             {isMobile && (

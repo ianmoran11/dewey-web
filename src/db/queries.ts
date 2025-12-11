@@ -42,6 +42,10 @@ export const updateTopic = async (topic: Partial<Topic> & { id: string }) => {
     }
 }
 
+export const updateTopicParent = async (id: string, newParentId: string | null) => {
+    await sql`UPDATE topics SET parent_id = ${newParentId} WHERE id = ${id}`;
+}
+
 export const saveTopicAudio = async (id: string, audioBlob: Blob) => {
   const buffer = await audioBlob.arrayBuffer();
   const data = new Uint8Array(buffer);

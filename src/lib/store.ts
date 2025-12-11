@@ -4,7 +4,7 @@ import { Topic, Settings, Template, ContentBlock, Job, JobType } from '../types'
 import { 
     getTopics, getTopic, getAudio, getTemplates, getContentBlocks,
     createTopic, createContentBlock, saveTopicAudio, saveBlockAudio,
-    updateTopic, deleteTopic
+    updateTopic, deleteTopic, updateTopicParent
 } from '../db/queries';
 import { generateSubtopics, generateAIContent, generateAudio } from '../services/ai';
 import { initDB, getSettings, saveSetting } from '../db/client';
@@ -42,6 +42,7 @@ interface AppState {
 
   createManualTopic: (parentId: string | null, title: string, code?: string) => Promise<void>;
   updateTopicDetails: (id: string, title: string, code?: string) => Promise<void>;
+  moveTopic: (id: string, newParentId: string | null) => Promise<void>;
   deleteTopic: (id: string) => Promise<void>;
   
   // Job Queue Actions
@@ -348,5 +349,10 @@ export const useStore = create<AppState>((set, get) => ({
       if (get().selectedTopicId === id) {
           get().selectTopic(null);
       }
+  },
+
+  moveTopic: async (id: string, newParentId: string | null) => {
+      await updateTopicParent(id, newParentId);
+      await get().refreshTopics();
   }
 }));
