@@ -33,6 +33,7 @@ interface AppState {
   init: () => Promise<void>;
   selectTopic: (id: string | null) => Promise<void>;
   setCheckedTopicIds: (ids: Set<string>) => void;
+  clearCheckedTopicIds: () => void;
   toggleTopicExpansion: (id: string) => void;
   refreshTopics: () => Promise<void>;
   refreshTemplates: () => Promise<void>;
@@ -249,6 +250,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setCheckedTopicIds: (ids: Set<string>) => set({ checkedTopicIds: ids }),
+  clearCheckedTopicIds: () => set({ checkedTopicIds: new Set() }),
 
   toggleTopicExpansion: (id: string) => set((state) => {
       const newExpanded = new Set(state.expandedTopicIds);

@@ -219,6 +219,7 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
     const [moveTargets, setMoveTargets] = useState<TopicNode[]>([]);
     const [moveModalOpen, setMoveModalOpen] = useState(false);
     const checkedTopicIds = useStore(s => s.checkedTopicIds);
+    const clearCheckedTopicIds = useStore(s => s.clearCheckedTopicIds);
 
     useEffect(() => {
         const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -416,6 +417,17 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
                         onChange={e => setSearch(e.target.value)}
                     />
                 </div>
+
+                {checkedTopicIds.size > 0 && (
+                    <button
+                        onClick={clearCheckedTopicIds}
+                        className="px-2.5 py-1.5 text-xs font-medium bg-white border border-gray-300 rounded-md hover:bg-gray-50 text-gray-600 shadow-sm"
+                        title="Clear all checked topics"
+                    >
+                        Clear ({checkedTopicIds.size})
+                    </button>
+                )}
+
                 <button 
                     onClick={handleCreateRoot}
                     className="p-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-50 text-gray-600 shadow-sm"
