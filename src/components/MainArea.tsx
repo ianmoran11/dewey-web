@@ -209,8 +209,19 @@ export const MainArea = () => {
             }
         }
         
-        if (queuedCount > 0) toast.success(`Audio synthesis queued for ${queuedCount} topic(s)`);
-        else toast.error("No content to narrate (Select topic to load content)");
+        if (queuedCount > 0) {
+            // Lightweight UX hint: long topics will be chunked into multiple TTS calls.
+            const totalChars = targets
+                .map(t => (t.id === selectedTopic.id ? (selectedContentBlocks.map(b => b.content).join('\n\n') || t.content || '') : ''))
+                .reduce((sum, s) => sum + (s?.length || 0), 0);
+            if (totalChars > 5000) {
+                toast.success(`Audio synthesis queued for ${queuedCount} topic(s). (Long narration will be generated in parts)`);
+            } else {
+                toast.success(`Audio synthesis queued for ${queuedCount} topic(s)`);
+            }
+        } else {
+            toast.error("No content to narrate (Select topic to load content)");
+        }
     }
 
     // Filter templates

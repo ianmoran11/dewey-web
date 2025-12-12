@@ -9,6 +9,7 @@ import {
 import { generateSubtopics, generateAIContent, generateAudio } from '../services/ai';
 import { initDB, getSettings, saveSetting } from '../db/client';
 import { seedDatabase } from '../db/seed';
+import { concatWavBlobs, splitTextForTTS } from '../utils/audio';
 
 let initialized = false;
 const MAX_CONCURRENT_JOBS = 3;
@@ -172,10 +173,39 @@ export const useStore = create<AppState>((set, get) => ({
         else if (pendingJob.type === 'audio') {
              if (!deepInfraKey) throw new Error("Missing API Key");
              const { targetId, isBlock, text } = pendingJob.payload;
-             
-             // Limit text length to prevent timeouts
-             const blob = await generateAudio(deepInfraKey, text.substring(0, 5000));
-             
+
+             // Generate audio for long text by chunking into multiple TTS calls, then
+             // concatenating the resulting WAV PCM data into a single WAV.
+             //
+             // NOTE: generateAudio() itself strips markdown; we chunk here to avoid
+             // provider timeouts/truncation and remove the previous 5,000 char cutoff.
+             const MAX_CHARS_PER_CHUNK = 2500;
+             const MAX_TOTAL_CHARS = 100_000;
+
+             const originalLen = (text || '').length;
+             if (originalLen > MAX_TOTAL_CHARS) {
+               throw new Error(`Text too long to narrate (${originalLen} chars). Try narrating smaller sections.`);
+             }
+
+             const chunks = splitTextForTTS(text || '', MAX_CHARS_PER_CHUNK);
+             if (chunks.length === 0) throw new Error('No text to narrate');
+
+             if (chunks.length > 1) {
+               console.log(`[TTS] Chunked narration: ${originalLen} chars -> ${chunks.length} chunks (max ${MAX_CHARS_PER_CHUNK})`);
+             }
+
+             const chunkBlobs: Blob[] = [];
+             for (let i = 0; i < chunks.length; i++) {
+               const chunk = chunks[i];
+               console.log(`[TTS] Generating chunk ${i + 1}/${chunks.length} (${chunk.length} chars)`);
+               const b = await generateAudio(deepInfraKey, chunk);
+               console.log(`[TTS] Chunk ${i + 1}/${chunks.length} blob size: ${b.size}`);
+               chunkBlobs.push(b);
+             }
+
+             const blob = await concatWavBlobs(chunkBlobs);
+             console.log(`[TTS] Final combined blob size: ${blob.size}`);
+
              if (isBlock) {
                  await saveBlockAudio(targetId, blob);
                  if (get().selectedTopicId) await get().refreshContentBlocks();
