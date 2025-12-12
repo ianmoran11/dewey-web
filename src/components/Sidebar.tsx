@@ -1,10 +1,12 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useStore } from '../lib/store';
 import { buildTree, getAllDescendantIds } from '../utils/tree';
-import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2, X, MoreHorizontal, Plus, Trash2, Edit2, ArrowRight, AlignLeft, Headphones } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2, X, MoreHorizontal, Plus, Trash2, Edit2, ArrowRight, AlignLeft, Headphones, Wand2, ChevronUp } from 'lucide-react';
 import { TopicNode } from '../types';
 import { TopicModal } from './TopicModal';
 import { MoveTopicModal } from './MoveTopicModal';
+import { interpolatePrompt } from '../utils/prompts';
+import toast from 'react-hot-toast';
 
 const QueueStatus = () => {
     const jobs = useStore(s => s.jobs);
@@ -195,10 +197,20 @@ interface SidebarProps {
 
 export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStart }: SidebarProps) => {
     const topics = useStore(s => s.topics);
+    const templates = useStore(s => s.templates);
+    const settings = useStore(s => s.settings);
+    const addJob = useStore(s => s.addJob);
+    const selectedTopic = useStore(s => s.selectedTopic);
+
     const selectTopic = useStore(s => s.selectTopic);
     const deleteTopic = useStore(s => s.deleteTopic);
+
     const [search, setSearch] = useState('');
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+    // Generation menus (in footer)
+    const [showSubtopicMenu, setShowSubtopicMenu] = useState(false);
+    const [showContentMenu, setShowContentMenu] = useState(false);
     
     // Modal State
     const [modalOpen, setModalOpen] = useState(false);
@@ -217,6 +229,78 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
     const handleSelectTopic = (id: string) => {
         selectTopic(id);
         if (isMobile) setIsOpen(false);
+    };
+
+    const getTargetTopics = () => {
+        if (checkedTopicIds.size > 0) {
+            return topics.filter(t => checkedTopicIds.has(t.id));
+        }
+        return selectedTopic ? [selectedTopic] : [];
+    };
+
+    const handleGenerateSubtopics = async (templateId?: string) => {
+        if (!settings.openRouterKey) return toast.error('Please configure API Key (OpenRouter) first');
+
+        setShowSubtopicMenu(false);
+        const targets = getTargetTopics();
+        if (targets.length === 0) return toast.error('Select a topic first');
+
+        let queuedCount = 0;
+        for (const target of targets) {
+            try {
+                let customPrompt: string | undefined = undefined;
+
+                if (templateId) {
+                    const subtopicTemplate = templates.find(t => t.id === templateId);
+                    if (subtopicTemplate) {
+                        const t = await interpolatePrompt(subtopicTemplate.prompt, target);
+                        customPrompt = t + "\n\nIMPORTANT: Return ONLY a JSON array of strings. Example: [\"Subtopic 1\"]";
+                    }
+                }
+
+                addJob('subtopics', {
+                    parentId: target.id,
+                    topicTitle: target.title,
+                    customPrompt,
+                    model: settings.modelSubtopic
+                });
+                queuedCount++;
+            } catch (e: any) {
+                console.error(e);
+            }
+        }
+
+        if (queuedCount > 0) toast.success(`Queued subtopics for ${queuedCount} topic(s)`);
+    };
+
+    const handleGenerateContent = async (templateId: string) => {
+        if (!settings.openRouterKey) return toast.error('Please configure API Key (OpenRouter) first');
+
+        const template = templates.find(t => t.id === templateId);
+        if (!template) return;
+
+        setShowContentMenu(false);
+        const targets = getTargetTopics();
+        if (targets.length === 0) return toast.error('Select a topic first');
+
+        let queuedCount = 0;
+        for (const target of targets) {
+            try {
+                const prompt = await interpolatePrompt(template.prompt, target);
+
+                addJob('content', {
+                    topicId: target.id,
+                    label: template.name,
+                    prompt,
+                    model: settings.modelContent
+                });
+                queuedCount++;
+            } catch (e: any) {
+                console.error(e);
+            }
+        }
+
+        if (queuedCount > 0) toast.success(`Content generation queued for ${queuedCount} topic(s)`);
     };
 
     const handleAction = async (action: string, node: TopicNode) => {
@@ -301,6 +385,10 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
 
     const tree = useMemo(() => buildTree(filteredTopics), [filteredTopics]);
 
+    const contentTemplates = templates.filter(t => t.type === 'content');
+    const subtopicTemplates = templates.filter(t => t.type === 'subtopics');
+    const canGenerate = checkedTopicIds.size > 0 || !!selectedTopic;
+
     if (!isOpen) return null;
     
     return (
@@ -315,16 +403,6 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
                     </span>
                     <h2 className="font-bold text-lg text-gray-800 tracking-tight">Dewey</h2>
                 </div>
-                {!isMobile && (
-                    <div className="flex gap-1">
-                        <button onClick={onOpenSettings} className="p-2 hover:bg-gray-100 rounded-full text-gray-500" title="Settings">
-                            <Settings size={18} />
-                        </button>
-                        <button onClick={() => setIsOpen(false)} className="p-2 hover:bg-gray-100 rounded-full text-gray-500" title="Collapse Sidebar">
-                            <ChevronsLeft size={18} />
-                        </button>
-                    </div>
-                )}
             </div>
             
             <div className="p-3 border-b border-gray-200 bg-gray-50/50 flex gap-2">
@@ -347,7 +425,7 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
                 </button>
             </div>
             
-            <div className="flex-1 overflow-auto py-2 custom-scrollbar pb-20">
+            <div className="flex-1 overflow-auto py-2 custom-scrollbar pb-44">
                 {tree.length === 0 ? (
                     <div className="text-center py-8 text-gray-400 text-sm">No topics found</div>
                 ) : (
@@ -371,18 +449,113 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
                 topicsToMove={moveTargets}
             />
 
-            {isMobile && (
-                <div className="p-3 border-t border-gray-200 bg-white flex items-center gap-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
-                    <button onClick={onOpenSettings} className="p-3 bg-gray-100 rounded-full text-gray-600 active:bg-gray-200" title="Settings">
-                        <Settings size={22} />
+            <QueueStatus />
+
+            {/* Footer Actions */}
+            <div className="p-3 border-t border-gray-200 bg-white shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
+                <div className="flex items-center gap-2">
+                    {/* Expand Subtopics */}
+                    <div className="relative flex-1">
+                        <button
+                            disabled={!canGenerate}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                                setShowContentMenu(false);
+                                setShowSubtopicMenu(v => !v);
+                            }}
+                            className="w-full flex items-center justify-center gap-2 px-2 py-2 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-md transition-colors disabled:opacity-50"
+                            title="Expand Subtopics"
+                        >
+                            <Wand2 size={14} />
+                            <span className="truncate">Expand</span>
+                            <ChevronUp size={12} className="text-gray-400" />
+                        </button>
+
+                        {showSubtopicMenu && (
+                            <>
+                                <div className="fixed inset-0 z-30" onClick={() => setShowSubtopicMenu(false)}></div>
+                                <div className="absolute bottom-full left-0 mb-2 w-56 bg-white rounded-lg shadow-xl border border-gray-100 py-1 z-40 overflow-hidden">
+                                    <button
+                                        onClick={() => handleGenerateSubtopics()}
+                                        className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-2"
+                                    >
+                                        <Wand2 size={12} />
+                                        Default
+                                    </button>
+
+                                    {subtopicTemplates.map(t => (
+                                        <button
+                                            key={t.id}
+                                            onClick={() => handleGenerateSubtopics(t.id)}
+                                            className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-2"
+                                        >
+                                            <FileText size={12} />
+                                            {t.name}
+                                        </button>
+                                    ))}
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    {/* Generate Content */}
+                    <div className="relative flex-1">
+                        <button
+                            disabled={!canGenerate}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                                setShowSubtopicMenu(false);
+                                setShowContentMenu(v => !v);
+                            }}
+                            className="w-full flex items-center justify-center gap-2 px-2 py-2 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-md transition-colors disabled:opacity-50"
+                            title="Generate Content"
+                        >
+                            <Plus size={14} />
+                            <span className="truncate">Content</span>
+                            <ChevronUp size={12} className="text-gray-400" />
+                        </button>
+
+                        {showContentMenu && (
+                            <>
+                                <div className="fixed inset-0 z-30" onClick={() => setShowContentMenu(false)}></div>
+                                <div className="absolute bottom-full right-0 mb-2 w-56 bg-white rounded-lg shadow-xl border border-gray-100 py-1 z-40 overflow-hidden">
+                                    {contentTemplates.length === 0 ? (
+                                        <div className="px-3 py-2 text-xs text-gray-500">No content templates</div>
+                                    ) : (
+                                        contentTemplates.map(t => (
+                                            <button
+                                                key={t.id}
+                                                onClick={() => handleGenerateContent(t.id)}
+                                                className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-2"
+                                            >
+                                                <FileText size={12} />
+                                                {t.name}
+                                            </button>
+                                        ))
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    {/* Settings + Minimize */}
+                    <button
+                        onClick={onOpenSettings}
+                        className="p-2 bg-white border border-gray-200 rounded-md hover:bg-gray-50 text-gray-600"
+                        title="Settings"
+                    >
+                        <Settings size={16} />
                     </button>
-                    <button onClick={() => setIsOpen(false)} className="p-3 bg-gray-100 rounded-full text-gray-600 active:bg-gray-200" title="Collapse Sidebar">
-                        <ChevronsLeft size={22} />
+                    <button
+                        onClick={() => setIsOpen(false)}
+                        className="p-2 bg-white border border-gray-200 rounded-md hover:bg-gray-50 text-gray-600"
+                        title="Collapse Sidebar"
+                    >
+                        <ChevronsLeft size={16} />
                     </button>
                 </div>
-            )}
+            </div>
 
-            <QueueStatus />
             
             {/* Resize Handle */}
             <div 
