@@ -1,3 +1,5 @@
+import { createPromptHistoryEntry } from '../db/queries';
+
 export interface AIResponse {
   choices: {
     message: {
@@ -58,6 +60,19 @@ export const generateSubtopics = async (
      { role: "user", content: prompt }
   ];
   
+  // Log prompt (no API key stored)
+  try {
+    await createPromptHistoryEntry({
+        provider: 'openrouter',
+        type: 'subtopics',
+        model: model || 'openai/gpt-3.5-turbo',
+        topic_title: topicTitle,
+        payload: JSON.stringify({ model: model || 'openai/gpt-3.5-turbo', messages }, null, 2)
+    });
+  } catch (e) {
+    console.warn('Failed to log prompt history', e);
+  }
+
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -109,6 +124,18 @@ export const generateAIContent = async (
   prompt: string,
   model?: string
 ): Promise<string> => {
+    // Log prompt (no API key stored)
+    try {
+        await createPromptHistoryEntry({
+            provider: 'openrouter',
+            type: 'content',
+            model: model || 'openai/gpt-3.5-turbo',
+            payload: JSON.stringify({ model: model || 'openai/gpt-3.5-turbo', messages: [{ role: 'user', content: prompt }] }, null, 2)
+        });
+    } catch (e) {
+        console.warn('Failed to log prompt history', e);
+    }
+
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {

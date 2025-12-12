@@ -46,6 +46,26 @@ export const initDB = async () => {
       FOREIGN KEY(topic_id) REFERENCES topics(id) ON DELETE CASCADE
     );
   `;
+
+  // Prompt History (request logging; excludes API keys)
+  await sql`
+    CREATE TABLE IF NOT EXISTS prompt_history (
+      id TEXT PRIMARY KEY,
+      created_at INTEGER,
+      provider TEXT,
+      type TEXT,
+      model TEXT,
+      topic_id TEXT,
+      topic_title TEXT,
+      template_id TEXT,
+      template_name TEXT,
+      payload TEXT
+    );
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_prompt_history_created_at ON prompt_history(created_at DESC);
+  `;
   
   await sql`
     CREATE INDEX IF NOT EXISTS idx_content_blocks_topic_id ON content_blocks(topic_id);

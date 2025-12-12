@@ -1,5 +1,19 @@
 import { sql } from './client';
+import { v4 as uuidv4 } from 'uuid';
 import { Topic, ContentBlock, Template } from '../types';
+
+export interface PromptHistoryEntry {
+    id: string;
+    created_at: number;
+    provider: string;
+    type: 'subtopics' | 'content' | 'audio';
+    model?: string;
+    topic_id?: string | null;
+    topic_title?: string | null;
+    template_id?: string | null;
+    template_name?: string | null;
+    payload: string; // JSON
+}
 
 export const getTopics = async (): Promise<Topic[]> => {
   const rows = await sql`
@@ -66,6 +80,53 @@ export const deleteTopic = async (id: string) => {
   // Cascading delete handles children if configured, but let's be safe later
   await sql`DELETE FROM topics WHERE id = ${id}`;
 };
+
+// --- Prompt History ---
+
+export const createPromptHistoryEntry = async (entry: Omit<PromptHistoryEntry, 'id' | 'created_at'> & { id?: string; created_at?: number; }) => {
+    const id = entry.id || uuidv4();
+    const created_at = entry.created_at || Date.now();
+
+    await sql`
+        INSERT INTO prompt_history (id, created_at, provider, type, model, topic_id, topic_title, template_id, template_name, payload)
+        VALUES (
+            ${id},
+            ${created_at},
+            ${entry.provider},
+            ${entry.type},
+            ${entry.model || null},
+            ${entry.topic_id || null},
+            ${entry.topic_title || null},
+            ${entry.template_id || null},
+            ${entry.template_name || null},
+            ${entry.payload}
+        )
+    `;
+
+    // Retention: keep the newest 200 records
+    await sql`
+        DELETE FROM prompt_history
+        WHERE id NOT IN (
+            SELECT id FROM prompt_history
+            ORDER BY created_at DESC
+            LIMIT 200
+        )
+    `;
+}
+
+export const getPromptHistory = async (limit = 200): Promise<PromptHistoryEntry[]> => {
+    const rows = await sql`
+        SELECT id, created_at, provider, type, model, topic_id, topic_title, template_id, template_name, payload
+        FROM prompt_history
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+    `;
+    return rows as unknown as PromptHistoryEntry[];
+}
+
+export const clearPromptHistory = async () => {
+    await sql`DELETE FROM prompt_history`;
+}
 
 // --- Content Blocks ---
 
@@ -209,13 +270,15 @@ export const exportDatabase = async () => {
         const contentBlocks = await sql`SELECT * FROM content_blocks`;
         const templates = await sql`SELECT * FROM templates`;
         const settings = await sql`SELECT * FROM settings`;
+        const promptHistory = await sql`SELECT * FROM prompt_history`;
         
         return {
             timestamp: Date.now(),
             topics: serialize(topics),
             contentBlocks: serialize(contentBlocks),
             templates: serialize(templates),
-            settings: serialize(settings)
+            settings: serialize(settings),
+            promptHistory: serialize(promptHistory)
         };
     } catch (e) {
         console.error("DEBUG: Export error", e);
@@ -224,6 +287,7 @@ export const exportDatabase = async () => {
 }
 
 export const clearDatabase = async () => {
+    await sql`DELETE FROM prompt_history`;
     await sql`DELETE FROM content_blocks`;
     await sql`DELETE FROM topics`;
     await sql`DELETE FROM templates`;
@@ -274,12 +338,22 @@ export const importDatabase = async (data: any) => {
             `;
         }
     }
-    
+
     // Import Settings
     if (data.settings) {
         for (const s of data.settings) {
              await sql`
                 INSERT INTO settings (key, value) VALUES (${s.key}, ${s.value})
+            `;
+        }
+    }
+
+    // Import Prompt History
+    if (data.promptHistory) {
+        for (const p of data.promptHistory) {
+            await sql`
+                INSERT INTO prompt_history (id, created_at, provider, type, model, topic_id, topic_title, template_id, template_name, payload)
+                VALUES (${p.id}, ${p.created_at}, ${p.provider}, ${p.type}, ${p.model}, ${p.topic_id}, ${p.topic_title}, ${p.template_id}, ${p.template_name}, ${p.payload})
             `;
         }
     }

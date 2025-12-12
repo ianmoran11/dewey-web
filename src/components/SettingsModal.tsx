@@ -2,13 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../lib/store';
 import { X, Key, List, Trash2, Plus, BrainCircuit, Database, Download, Upload, AlertTriangle } from 'lucide-react';
 import { getModels, OpenRouterModel } from '../services/ai';
-import { saveTemplate, deleteTemplate, exportDatabase, importDatabase, clearDatabase } from '../db/queries';
+import { saveTemplate, deleteTemplate, exportDatabase, importDatabase, clearDatabase, getPromptHistory, clearPromptHistory, PromptHistoryEntry } from '../db/queries';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
 
 export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
     const { settings, updateSetting, templates, refreshTemplates, refreshTopics } = useStore();
-    const [activeTab, setActiveTab] = useState<'general' | 'templates' | 'data'>('general');
+    const [activeTab, setActiveTab] = useState<'general' | 'templates' | 'history' | 'data'>('general');
     
     // API Keys
     const [openRouterKey, setOpenRouterKey] = useState(settings.openRouterKey || '');
@@ -26,6 +26,11 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
     const [newTemplateType, setNewTemplateType] = useState<'content' | 'subtopics'>('content');
     const [isAddingTemplate, setIsAddingTemplate] = useState(false);
 
+    // Prompt History
+    const [promptHistory, setPromptHistory] = useState<PromptHistoryEntry[]>([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [selectedHistory, setSelectedHistory] = useState<PromptHistoryEntry | null>(null);
+
     // Data Management
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -40,6 +45,14 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
                 .catch(() => setLoadingModels(false));
         }
     }, [openRouterKey]);
+
+    useEffect(() => {
+        if (activeTab !== 'history') return;
+        setHistoryLoading(true);
+        getPromptHistory(200)
+            .then(rows => setPromptHistory(rows))
+            .finally(() => setHistoryLoading(false));
+    }, [activeTab]);
 
     const handleSaveGeneral = async () => {
         await updateSetting('openRouterKey', openRouterKey);
@@ -164,6 +177,12 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
                         className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors ${activeTab === 'templates' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
                     >
                         Prompt Templates
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('history')}
+                        className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors ${activeTab === 'history' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                    >
+                        Prompt History
                     </button>
                     <button 
                         onClick={() => setActiveTab('data')}
@@ -335,6 +354,94 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
                                     </div>
                                 ))}
                             </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'history' && (
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wide flex items-center gap-2">
+                                    <List size={16} /> Prompt History
+                                </h3>
+                                <button
+                                    onClick={async () => {
+                                        if (!confirm('Clear all prompt history?')) return;
+                                        await clearPromptHistory();
+                                        setPromptHistory([]);
+                                        setSelectedHistory(null);
+                                        toast.success('Prompt history cleared');
+                                    }}
+                                    className="text-xs flex items-center gap-1 bg-red-50 text-red-600 px-2 py-1 rounded hover:bg-red-100 font-medium"
+                                >
+                                    <Trash2 size={14} /> Clear
+                                </button>
+                            </div>
+
+                            {historyLoading ? (
+                                <div className="text-sm text-gray-500">Loading…</div>
+                            ) : promptHistory.length === 0 ? (
+                                <div className="text-sm text-gray-500">No prompts logged yet.</div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div className="space-y-2">
+                                        {promptHistory.map(h => {
+                                            const preview = (() => {
+                                                try {
+                                                    const obj = JSON.parse(h.payload);
+                                                    const msg = obj?.messages?.[0]?.content || obj?.messages?.[1]?.content || '';
+                                                    return String(msg).replace(/\s+/g, ' ').slice(0, 120);
+                                                } catch {
+                                                    return h.payload.slice(0, 120);
+                                                }
+                                            })();
+
+                                            return (
+                                                <button
+                                                    key={h.id}
+                                                    onClick={() => setSelectedHistory(h)}
+                                                    className={`w-full text-left border rounded-lg p-3 hover:border-gray-300 hover:shadow-sm transition-all ${selectedHistory?.id === h.id ? 'border-blue-300 bg-blue-50' : 'border-gray-200 bg-white'}`}
+                                                >
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <span className="text-xs font-semibold text-gray-700 uppercase tracking-wider">{h.type}</span>
+                                                        <span className="text-[10px] text-gray-400">{new Date(h.created_at).toLocaleString()}</span>
+                                                    </div>
+                                                    <div className="text-xs text-gray-500 mt-1">{h.model || 'default model'}</div>
+                                                    {h.topic_title && (
+                                                        <div className="text-xs text-gray-700 mt-1 truncate">{h.topic_title}</div>
+                                                    )}
+                                                    <div className="text-xs text-gray-500 mt-2 line-clamp-3 font-mono">
+                                                        {preview}
+                                                    </div>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+
+                                    <div className="border border-gray-200 rounded-lg bg-white p-3">
+                                        {!selectedHistory ? (
+                                            <div className="text-sm text-gray-500">Select a prompt to view details.</div>
+                                        ) : (
+                                            <>
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <div className="text-xs font-semibold text-gray-700 uppercase tracking-wider">Details</div>
+                                                    <button
+                                                        onClick={async () => {
+                                                            await navigator.clipboard.writeText(selectedHistory.payload);
+                                                            toast.success('Copied payload');
+                                                        }}
+                                                        className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded font-medium"
+                                                    >
+                                                        Copy
+                                                    </button>
+                                                </div>
+                                                <pre className="text-[11px] whitespace-pre-wrap break-words font-mono text-gray-700 bg-gray-50 border border-gray-200 rounded p-2 max-h-[45vh] overflow-auto">
+                                                    {selectedHistory.payload}
+                                                </pre>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
