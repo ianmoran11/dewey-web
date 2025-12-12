@@ -6,6 +6,8 @@ export interface Topic {
   // content is deprecated in favor of content_blocks, but keeping optional for backward compat/migration if needed
   content?: string; 
   has_audio: boolean;
+  has_content?: boolean;
+  has_block_audio?: boolean;
   created_at: number;
 }
 

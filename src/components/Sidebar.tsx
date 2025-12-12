@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useStore } from '../lib/store';
 import { buildTree, getAllDescendantIds } from '../utils/tree';
-import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2, X, MoreHorizontal, Plus, Trash2, Edit2, ArrowRight } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2, X, MoreHorizontal, Plus, Trash2, Edit2, ArrowRight, AlignLeft, Headphones } from 'lucide-react';
 import { TopicNode } from '../types';
 import { TopicModal } from './TopicModal';
 import { MoveTopicModal } from './MoveTopicModal';
@@ -128,6 +128,8 @@ const TreeNode = ({ node, level, onSelect, onAction }: { node: TopicNode, level:
                 <span className="truncate text-sm flex-1">{node.code ? `${node.code} ` : ''}{node.title}</span>
                 
                 {/* Icons for status */}
+                {!!node.has_content && <AlignLeft size={12} className="text-gray-600 ml-2" />}
+                {!!(node.has_audio || node.has_block_audio) && <Headphones size={12} className="text-gray-600 ml-2" />}
                 {isQueued && <Loader2 size={12} className="animate-spin text-yellow-600 ml-2" />}
                 {isUnread && <div className="w-2 h-2 rounded-full bg-green-500 ml-2" />}
 

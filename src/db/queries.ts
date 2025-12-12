@@ -3,9 +3,12 @@ import { Topic, ContentBlock, Template } from '../types';
 
 export const getTopics = async (): Promise<Topic[]> => {
   const rows = await sql`
-    SELECT id, parent_id, code, title, content, has_audio, created_at 
-    FROM topics 
-    ORDER BY code ASC, created_at ASC
+    SELECT 
+      t.id, t.parent_id, t.code, t.title, t.content, t.has_audio, t.created_at,
+      ((SELECT COUNT(*) FROM content_blocks WHERE topic_id = t.id) > 0 OR (t.content IS NOT NULL AND t.content != '')) AS has_content,
+      (SELECT COUNT(*) FROM content_blocks WHERE topic_id = t.id AND has_audio = 1) > 0 AS has_block_audio
+    FROM topics t 
+    ORDER BY t.code ASC, t.created_at ASC
   `;
   // Cast the result
   return rows as unknown as Topic[];
