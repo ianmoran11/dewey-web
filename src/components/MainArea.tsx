@@ -181,6 +181,9 @@ export const MainArea = () => {
             addJob('audio', {
                 targetId: blockId,
                 isBlock: true,
+                topicId: selectedTopic.id,
+                topicTitle: selectedTopic.title,
+                blockLabel: block.label,
                 text: block.content
             });
             toast.success("Audio synthesis queued");
@@ -203,6 +206,7 @@ export const MainArea = () => {
                 addJob('audio', {
                     targetId: target.id,
                     isBlock: false,
+                    topicTitle: target.title,
                     text: textToNarrate
                 });
                 queuedCount++;

@@ -1,6 +1,6 @@
 import { sql } from './client';
 import { v4 as uuidv4 } from 'uuid';
-import { Topic, ContentBlock, Template } from '../types';
+import { AudioEpisode, ContentBlock, Template, Topic } from '../types';
 
 export interface PromptHistoryEntry {
     id: string;
@@ -67,6 +67,68 @@ export const saveTopicAudio = async (id: string, audioBlob: Blob) => {
   const buffer = await audioBlob.arrayBuffer();
   const data = new Uint8Array(buffer);
   await sql`UPDATE topics SET audio = ${data}, has_audio = true WHERE id = ${id}`;
+};
+
+export const createAudioEpisode = async (episode: {
+  id: string;
+  created_at: number;
+  title: string;
+  scope: 'topic' | 'block';
+  topic_id: string;
+  block_id?: string | null;
+  audioBlob: Blob;
+}) => {
+  const buffer = await episode.audioBlob.arrayBuffer();
+  const data = new Uint8Array(buffer);
+
+  await sql`
+    INSERT INTO audio_episodes (id, created_at, title, scope, topic_id, block_id, audio)
+    VALUES (
+      ${episode.id},
+      ${episode.created_at},
+      ${episode.title},
+      ${episode.scope},
+      ${episode.topic_id},
+      ${episode.block_id || null},
+      ${data}
+    )
+  `;
+};
+
+export const updateAudioEpisodeTitle = async (id: string, title: string) => {
+  await sql`UPDATE audio_episodes SET title = ${title} WHERE id = ${id}`;
+};
+
+export const deleteAudioEpisode = async (id: string) => {
+  await sql`DELETE FROM audio_episodes WHERE id = ${id}`;
+};
+
+export const getAudioEpisodeAudio = async (id: string): Promise<Blob | null> => {
+  const rows = await sql`SELECT audio FROM audio_episodes WHERE id = ${id}`;
+  if (rows.length === 0 || !rows[0].audio) return null;
+  const uint8 = rows[0].audio as Uint8Array;
+  return new Blob([uint8 as any], { type: 'audio/wav' });
+};
+
+export const getAudioEpisodes = async (): Promise<AudioEpisode[]> => {
+  const rows = await sql`
+    SELECT
+      ae.id,
+      ae.created_at,
+      ae.title,
+      ae.scope,
+      ae.topic_id,
+      ae.block_id,
+      t.title AS topic_title,
+      t.code AS topic_code,
+      cb.label AS block_label
+    FROM audio_episodes ae
+    JOIN topics t ON t.id = ae.topic_id
+    LEFT JOIN content_blocks cb ON cb.id = ae.block_id
+    ORDER BY ae.created_at DESC
+  `;
+
+  return rows as unknown as AudioEpisode[];
 };
 
 export const createTopic = async (topic: Topic) => {
@@ -271,6 +333,7 @@ export const exportDatabase = async () => {
         const templates = await sql`SELECT * FROM templates`;
         const settings = await sql`SELECT * FROM settings`;
         const promptHistory = await sql`SELECT * FROM prompt_history`;
+        const audioEpisodes = await sql`SELECT * FROM audio_episodes`;
         
         return {
             timestamp: Date.now(),
@@ -278,7 +341,8 @@ export const exportDatabase = async () => {
             contentBlocks: serialize(contentBlocks),
             templates: serialize(templates),
             settings: serialize(settings),
-            promptHistory: serialize(promptHistory)
+            promptHistory: serialize(promptHistory),
+            audioEpisodes: serialize(audioEpisodes)
         };
     } catch (e) {
         console.error("DEBUG: Export error", e);
@@ -288,6 +352,7 @@ export const exportDatabase = async () => {
 
 export const clearDatabase = async () => {
     await sql`DELETE FROM prompt_history`;
+    await sql`DELETE FROM audio_episodes`;
     await sql`DELETE FROM content_blocks`;
     await sql`DELETE FROM topics`;
     await sql`DELETE FROM templates`;
@@ -354,6 +419,16 @@ export const importDatabase = async (data: any) => {
             await sql`
                 INSERT INTO prompt_history (id, created_at, provider, type, model, topic_id, topic_title, template_id, template_name, payload)
                 VALUES (${p.id}, ${p.created_at}, ${p.provider}, ${p.type}, ${p.model}, ${p.topic_id}, ${p.topic_title}, ${p.template_id}, ${p.template_name}, ${p.payload})
+            `;
+        }
+    }
+
+    // Import Audio Episodes (optional, for newer backups)
+    if (data.audioEpisodes) {
+        for (const ae of data.audioEpisodes) {
+            await sql`
+                INSERT INTO audio_episodes (id, created_at, title, scope, topic_id, block_id, audio)
+                VALUES (${ae.id}, ${ae.created_at}, ${ae.title}, ${ae.scope}, ${ae.topic_id}, ${ae.block_id || null}, ${resolveAudio(ae.audio)})
             `;
         }
     }

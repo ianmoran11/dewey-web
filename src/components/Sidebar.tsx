@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useStore } from '../lib/store';
 import { buildTree, getAllDescendantIds } from '../utils/tree';
-import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2, X, MoreHorizontal, Plus, Trash2, Edit2, ArrowRight, AlignLeft, Headphones, Wand2, ChevronUp } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2, X, MoreHorizontal, Plus, Trash2, Edit2, ArrowRight, AlignLeft, Headphones, Wand2, ChevronUp, Library } from 'lucide-react';
 import { TopicNode } from '../types';
 import { TopicModal } from './TopicModal';
 import { MoveTopicModal } from './MoveTopicModal';
@@ -189,13 +189,14 @@ const TreeNode = ({ node, level, onSelect, onAction }: { node: TopicNode, level:
 
 interface SidebarProps {
     onOpenSettings: () => void;
+    onOpenAudioLibrary: () => void;
     width: number;
     isOpen: boolean;
     setIsOpen: (isOpen: boolean) => void;
     onResizeStart: () => void;
 }
 
-export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStart }: SidebarProps) => {
+export const Sidebar = ({ onOpenSettings, onOpenAudioLibrary, width, isOpen, setIsOpen, onResizeStart }: SidebarProps) => {
     const topics = useStore(s => s.topics);
     const templates = useStore(s => s.templates);
     const settings = useStore(s => s.settings);
@@ -550,7 +551,14 @@ export const Sidebar = ({ onOpenSettings, width, isOpen, setIsOpen, onResizeStar
                         )}
                     </div>
 
-                    {/* Settings + Minimize */}
+                    {/* Audio + Settings + Minimize */}
+                    <button
+                        onClick={onOpenAudioLibrary}
+                        className="p-2 bg-white border border-gray-200 rounded-md hover:bg-gray-50 text-gray-600"
+                        title="Audio Library"
+                    >
+                        <Library size={16} />
+                    </button>
                     <button
                         onClick={onOpenSettings}
                         className="p-2 bg-white border border-gray-200 rounded-md hover:bg-gray-50 text-gray-600"

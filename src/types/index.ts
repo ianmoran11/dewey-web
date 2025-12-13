@@ -24,6 +24,22 @@ export interface ContentBlock {
   created_at: number;
 }
 
+export type AudioEpisodeScope = 'topic' | 'block';
+
+export interface AudioEpisode {
+  id: string;
+  created_at: number;
+  title: string;
+  scope: AudioEpisodeScope;
+  topic_id: string;
+  block_id?: string | null;
+
+  // Derived/joined display fields
+  topic_title?: string;
+  topic_code?: string;
+  block_label?: string | null;
+}
+
 export interface Template {
   id: string;
   name: string;

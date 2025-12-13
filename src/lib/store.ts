@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Topic, Settings, Template, ContentBlock, Job, JobType } from '../types';
 import { 
     getTopics, getTopic, getAudio, getTemplates, getContentBlocks,
+    createAudioEpisode,
     createTopic, createContentBlock, saveTopicAudio, saveBlockAudio,
     updateTopic, deleteTopic, updateTopicParent
 } from '../db/queries';
@@ -207,10 +208,40 @@ export const useStore = create<AppState>((set, get) => ({
              console.log(`[TTS] Final combined blob size: ${blob.size}`);
 
              if (isBlock) {
+                 // Keep legacy storage for now
                  await saveBlockAudio(targetId, blob);
+
+                 // Also create an audio episode (auto-title)
+                 // targetId here is block id, so topic_id comes from payload (if provided)
+                 const topicId = pendingJob.payload.topicId as string | undefined;
+                 if (topicId) {
+                   await createAudioEpisode({
+                     id: uuidv4(),
+                     created_at: Date.now(),
+                     title: pendingJob.payload.title || `Narration: ${pendingJob.payload.topicTitle || 'Section'} — ${pendingJob.payload.blockLabel || ''}`.trim(),
+                     scope: 'block',
+                     topic_id: topicId,
+                     block_id: targetId,
+                     audioBlob: blob
+                   });
+                 }
+
                  if (get().selectedTopicId) await get().refreshContentBlocks();
              } else {
+                 // Keep legacy storage for now
                  await saveTopicAudio(targetId, blob);
+
+                 // Also create an audio episode (auto-title)
+                 await createAudioEpisode({
+                   id: uuidv4(),
+                   created_at: Date.now(),
+                   title: pendingJob.payload.title || `Narration: ${pendingJob.payload.topicTitle || 'Topic'}`,
+                   scope: 'topic',
+                   topic_id: targetId,
+                   block_id: null,
+                   audioBlob: blob
+                 });
+
                  // If this is the currently selected topic, reload it to update audioUrl
                  if (get().selectedTopicId === targetId) {
                      await get().selectTopic(targetId);

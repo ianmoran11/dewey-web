@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { MainArea } from './components/MainArea'
 import { SettingsModal } from './components/SettingsModal'
+import { AudioLibraryModal } from './components/AudioLibraryModal'
 import { useStore } from './lib/store'
 import { Toaster } from 'react-hot-toast'
 import { Menu } from 'lucide-react'
@@ -9,6 +10,7 @@ import { Menu } from 'lucide-react'
 function App() {
   const { init, isInitializing } = useStore();
   const [showSettings, setShowSettings] = useState(false);
+  const [showAudioLibrary, setShowAudioLibrary] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isResizing, setIsResizing] = useState(false);
@@ -70,7 +72,8 @@ function App() {
   return (
     <div className={`h-screen flex overflow-hidden ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
       <Sidebar 
-        onOpenSettings={() => setShowSettings(true)} 
+        onOpenSettings={() => setShowSettings(true)}
+        onOpenAudioLibrary={() => setShowAudioLibrary(true)}
         width={sidebarWidth}
         isOpen={isSidebarOpen}
         setIsOpen={setIsSidebarOpen}
@@ -90,6 +93,7 @@ function App() {
       <MainArea />
       
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showAudioLibrary && <AudioLibraryModal onClose={() => setShowAudioLibrary(false)} />}
       <Toaster position="bottom-right" />
     </div>
   )

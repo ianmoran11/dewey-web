@@ -63,6 +63,25 @@ export const initDB = async () => {
     );
   `;
 
+  // Audio Episodes (audio library)
+  await sql`
+    CREATE TABLE IF NOT EXISTS audio_episodes (
+      id TEXT PRIMARY KEY,
+      created_at INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      scope TEXT NOT NULL, -- 'topic' | 'block'
+      topic_id TEXT NOT NULL,
+      block_id TEXT,
+      audio BLOB NOT NULL,
+      FOREIGN KEY(topic_id) REFERENCES topics(id) ON DELETE CASCADE,
+      FOREIGN KEY(block_id) REFERENCES content_blocks(id) ON DELETE CASCADE
+    );
+  `;
+
+  await sql`CREATE INDEX IF NOT EXISTS idx_audio_episodes_created_at ON audio_episodes(created_at DESC);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_audio_episodes_topic_id ON audio_episodes(topic_id);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_audio_episodes_block_id ON audio_episodes(block_id);`;
+
   await sql`
     CREATE INDEX IF NOT EXISTS idx_prompt_history_created_at ON prompt_history(created_at DESC);
   `;
@@ -87,6 +106,56 @@ export const initDB = async () => {
     await sql`ALTER TABLE content_blocks ADD COLUMN has_audio BOOLEAN DEFAULT 0`;
   } catch (e) {
     // Ignore if columns already exist
+  }
+
+  // Backfill existing topic/block audio into audio_episodes (one-time-ish).
+  // Topic audio
+  try {
+    await sql`
+      INSERT INTO audio_episodes (id, created_at, title, scope, topic_id, block_id, audio)
+      SELECT
+        lower(hex(randomblob(16))) as id,
+        COALESCE(t.created_at, strftime('%s','now')*1000) as created_at,
+        'Narration: ' || t.title as title,
+        'topic' as scope,
+        t.id as topic_id,
+        NULL as block_id,
+        t.audio as audio
+      FROM topics t
+      WHERE (t.has_audio = 1 OR t.has_audio = true)
+        AND t.audio IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM audio_episodes ae
+          WHERE ae.scope = 'topic' AND ae.topic_id = t.id
+        );
+    `;
+  } catch (e) {
+    // ignore backfill errors
+  }
+
+  // Block audio
+  try {
+    await sql`
+      INSERT INTO audio_episodes (id, created_at, title, scope, topic_id, block_id, audio)
+      SELECT
+        lower(hex(randomblob(16))) as id,
+        COALESCE(cb.created_at, strftime('%s','now')*1000) as created_at,
+        'Narration: ' || t.title || ' — ' || cb.label as title,
+        'block' as scope,
+        cb.topic_id as topic_id,
+        cb.id as block_id,
+        cb.audio as audio
+      FROM content_blocks cb
+      JOIN topics t ON t.id = cb.topic_id
+      WHERE (cb.has_audio = 1 OR cb.has_audio = true)
+        AND cb.audio IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM audio_episodes ae
+          WHERE ae.scope = 'block' AND ae.block_id = cb.id
+        );
+    `;
+  } catch (e) {
+    // ignore backfill errors
   }
 
   console.log('Database Initialized.');
