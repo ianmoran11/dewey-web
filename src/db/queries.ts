@@ -261,6 +261,16 @@ export const getSiblings = async (parentId: string | null, currentId: string): P
     }
 }
 
+export const getChildren = async (parentId: string | null): Promise<Topic[]> => {
+    if (parentId) {
+        const rows = await sql`SELECT * FROM topics WHERE parent_id = ${parentId} ORDER BY code ASC, created_at ASC`;
+        return rows as unknown as Topic[];
+    } else {
+        const rows = await sql`SELECT * FROM topics WHERE parent_id IS NULL ORDER BY code ASC, created_at ASC`;
+        return rows as unknown as Topic[];
+    }
+}
+
 export const getAncestors = async (id: string): Promise<Topic[]> => {
     const rows = await sql`
         WITH RECURSIVE ancestors AS (

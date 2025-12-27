@@ -1,10 +1,11 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useStore } from '../lib/store';
 import { buildTree, getAllDescendantIds } from '../utils/tree';
-import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2, X, MoreHorizontal, Plus, Trash2, Edit2, ArrowRight, AlignLeft, Headphones, Wand2, ChevronUp, Library } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2, X, MoreHorizontal, Plus, Trash2, Edit2, ArrowRight, AlignLeft, Headphones, Wand2, ChevronUp, Library, ArrowDownAZ } from 'lucide-react';
 import { TopicNode } from '../types';
 import { TopicModal } from './TopicModal';
 import { MoveTopicModal } from './MoveTopicModal';
+import { BulkCodeEditorModal } from './BulkCodeEditorModal';
 import { interpolatePrompt } from '../utils/prompts';
 import toast from 'react-hot-toast';
 
@@ -169,6 +170,12 @@ const TreeNode = ({ node, level, onSelect, onAction }: { node: TopicNode, level:
                             >
                                 <ArrowRight size={12} /> Move
                             </button>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); onAction('manage_codes', node); }}
+                                className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                            >
+                                <ArrowDownAZ size={12} /> Manage Codes
+                            </button>
                             <div className="my-1 border-t border-gray-100"></div>
                             <button 
                                 onClick={(e) => { e.stopPropagation(); onAction('delete', node); }}
@@ -219,6 +226,8 @@ export const Sidebar = ({ onOpenSettings, onOpenAudioLibrary, width, isOpen, set
     const [targetNode, setTargetNode] = useState<TopicNode | null>(null);
     const [moveTargets, setMoveTargets] = useState<TopicNode[]>([]);
     const [moveModalOpen, setMoveModalOpen] = useState(false);
+    const [bulkCodeModalOpen, setBulkCodeModalOpen] = useState(false);
+    const [bulkCodeParentId, setBulkCodeParentId] = useState<string | null>(null);
     const checkedTopicIds = useStore(s => s.checkedTopicIds);
     const clearCheckedTopicIds = useStore(s => s.clearCheckedTopicIds);
 
@@ -365,6 +374,9 @@ export const Sidebar = ({ onOpenSettings, onOpenAudioLibrary, width, isOpen, set
             
             setMoveTargets(targetNodes);
             setMoveModalOpen(true);
+        } else if (action === 'manage_codes') {
+            setBulkCodeParentId(node.id);
+            setBulkCodeModalOpen(true);
         }
     };
 
@@ -430,6 +442,16 @@ export const Sidebar = ({ onOpenSettings, onOpenAudioLibrary, width, isOpen, set
                 )}
 
                 <button 
+                    onClick={() => {
+                        setBulkCodeParentId(null);
+                        setBulkCodeModalOpen(true);
+                    }}
+                    className="p-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-50 text-gray-600 shadow-sm ml-1"
+                    title="Manage Root Codes"
+                >
+                    <ArrowDownAZ size={18} />
+                </button>
+                <button 
                     onClick={handleCreateRoot}
                     className="p-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-50 text-gray-600 shadow-sm"
                     title="Add Root Topic"
@@ -460,6 +482,12 @@ export const Sidebar = ({ onOpenSettings, onOpenAudioLibrary, width, isOpen, set
                 isOpen={moveModalOpen}
                 onClose={() => setMoveModalOpen(false)}
                 topicsToMove={moveTargets}
+            />
+
+            <BulkCodeEditorModal 
+                isOpen={bulkCodeModalOpen}
+                onClose={() => setBulkCodeModalOpen(false)}
+                parentId={bulkCodeParentId}
             />
 
             <QueueStatus />

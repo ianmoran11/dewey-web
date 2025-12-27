@@ -5,12 +5,13 @@ import {
     getTopics, getTopic, getAudio, getTemplates, getContentBlocks,
     createAudioEpisode,
     createTopic, createContentBlock, saveTopicAudio, saveBlockAudio,
-    updateTopic, deleteTopic, updateTopicParent
+    updateTopic, deleteTopic, updateTopicParent, getChildren
 } from '../db/queries';
 import { generateSubtopics, generateAIContent, generateAudio } from '../services/ai';
 import { initDB, getSettings, saveSetting } from '../db/client';
 import { seedDatabase } from '../db/seed';
 import { concatWavBlobs, splitTextForTTS } from '../utils/audio';
+import { generateCodes } from '../utils/code';
 
 let initialized = false;
 const MAX_CONCURRENT_JOBS = 3;
@@ -45,6 +46,7 @@ interface AppState {
 
   createManualTopic: (parentId: string | null, title: string, code?: string) => Promise<void>;
   updateTopicDetails: (id: string, title: string, code?: string) => Promise<void>;
+  updateTopicsBulk: (updates: { id: string, title: string, code?: string }[]) => Promise<void>;
   moveTopic: (id: string, newParentId: string | null) => Promise<void>;
   deleteTopic: (id: string) => Promise<void>;
   
@@ -141,11 +143,18 @@ export const useStore = create<AppState>((set, get) => ({
                 customPrompt
             );
 
-            for (const child of children) {
+            // Generate logical codes
+            const parent = parentId ? await getTopic(parentId) : null;
+            const existingSiblings = await getChildren(parentId);
+            const siblingCodes = existingSiblings.map(t => t.code).filter((c): c is string => !!c);
+            const newCodes = generateCodes(parent?.code, siblingCodes, children.length);
+
+            for (let i = 0; i < children.length; i++) {
                 await createTopic({
                     id: uuidv4(),
                     parent_id: parentId,
-                    title: child,
+                    title: children[i],
+                    code: newCodes[i],
                     has_audio: false,
                     created_at: Date.now()
                 });
@@ -402,6 +411,18 @@ export const useStore = create<AppState>((set, get) => ({
       await get().refreshTopics();
       if (get().selectedTopicId === id) {
           const updated = await getTopic(id);
+          set({ selectedTopic: updated });
+      }
+  },
+
+  updateTopicsBulk: async (updates) => {
+      // Execute all updates in parallel (or sequential if DB locks concern, but SQL calls are independent)
+      await Promise.all(updates.map(u => updateTopic(u)));
+      await get().refreshTopics();
+      // If selected topic was one of them, refresh it
+      const { selectedTopicId } = get();
+      if (selectedTopicId && updates.some(u => u.id === selectedTopicId)) {
+          const updated = await getTopic(selectedTopicId);
           set({ selectedTopic: updated });
       }
   },
