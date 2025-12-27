@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X, Wand2, Trash2, Save, ArrowDownAZ } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, Trash2, Save, ArrowDownAZ } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { generateCodes } from '../utils/code';
 import { Topic } from '../types';
@@ -13,8 +13,7 @@ interface BulkCodeEditorModalProps {
 export const BulkCodeEditorModal = ({ isOpen, onClose, parentId }: BulkCodeEditorModalProps) => {
     const allTopics = useStore(s => s.topics);
     const updateTopicsBulk = useStore(s => s.updateTopicsBulk);
-    const getTopic = useStore(s => s.topics.find(t => t.id === parentId)); // Parent topic details
-
+    
     const [items, setItems] = useState<Topic[]>([]);
     const [isLoading, setIsLoading] = useState(false);
 
