@@ -49,13 +49,16 @@ export const updateTopicContent = async (id: string, content: string) => {
 };
 
 export const updateTopic = async (topic: Partial<Topic> & { id: string }) => {
-    // Only update allowed fields
-    if (topic.title !== undefined && topic.code !== undefined) {
-        await sql`UPDATE topics SET title = ${topic.title}, code = ${topic.code} WHERE id = ${topic.id}`;
-    } else if (topic.title !== undefined) {
+    // Update fields individually to allow flexible partial updates
+    // This is slightly less efficient but safer with the template literal binding constraint
+    if (topic.title !== undefined) {
         await sql`UPDATE topics SET title = ${topic.title} WHERE id = ${topic.id}`;
-    } else if (topic.code !== undefined) {
+    }
+    if (topic.code !== undefined) {
         await sql`UPDATE topics SET code = ${topic.code} WHERE id = ${topic.id}`;
+    }
+    if (topic.parent_id !== undefined) {
+        await sql`UPDATE topics SET parent_id = ${topic.parent_id} WHERE id = ${topic.id}`;
     }
 }
 

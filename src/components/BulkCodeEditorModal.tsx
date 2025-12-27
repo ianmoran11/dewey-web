@@ -118,7 +118,8 @@ export const BulkCodeEditorModal = ({ isOpen, onClose, parentId }: BulkCodeEdito
             await updateTopicsBulk(items.map(t => ({
                 id: t.id,
                 title: t.title,
-                code: t.code || undefined // Assuming store handles empty string as undefined or handles it
+                code: t.code,
+                parent_id: t.parent_id
             })));
             onClose();
         } catch (e) {
