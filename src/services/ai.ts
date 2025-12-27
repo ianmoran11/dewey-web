@@ -35,6 +35,94 @@ export const getModels = async (apiKey: string): Promise<OpenRouterModel[]> => {
     }
 }
 
+export const reorderSubtopics = async (
+  apiKey: string,
+  topicTitle: string,
+  subtopics: string[],
+  model?: string
+): Promise<string[]> => {
+  const prompt = `
+      You are a taxonomy expert.
+      I will provide a list of subtopics for the topic "${topicTitle}".
+      Reorder them into the most logical, semantic order, similar to how they would be presented in a standard textbook on the subject.
+      Do not change the titles.
+      Return ONLY a JSON array of strings with the reordered titles.
+
+      Subtopics:
+      ${JSON.stringify(subtopics)}
+    `;
+
+  const messages = [
+     { role: "system", content: "You are a helpful assistant that outputs JSON only." },
+     { role: "user", content: prompt }
+  ];
+  
+  // Log prompt (no API key stored)
+  try {
+    await createPromptHistoryEntry({
+        provider: 'openrouter',
+        type: 'subtopics', // Reusing type 'subtopics' or could be 'reorder' but 'subtopics' fits
+        model: model || 'openai/gpt-3.5-turbo',
+        topic_title: topicTitle,
+        payload: JSON.stringify({ model: model || 'openai/gpt-3.5-turbo', messages }, null, 2)
+    });
+  } catch (e) {
+    console.warn('Failed to log prompt history', e);
+  }
+
+  const cleanKey = apiKey?.trim();
+  if (!cleanKey) throw new Error("API Key is missing or empty");
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${cleanKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : 'https://dewey.app',
+      'X-Title': 'Dewey'
+    },
+    body: JSON.stringify({
+      model: model || 'openai/gpt-3.5-turbo',
+      messages
+    })
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    if (response.status === 401) {
+        throw new Error(`Authentication Failed (401). Please check your OpenRouter API Key in Settings.`);
+    }
+    throw new Error(`AI Request Failed: ${response.statusText} - ${err}`);
+  }
+
+  const data = await response.json() as AIResponse;
+  const content = data.choices[0].message.content;
+  
+  try {
+    // Clean up common markdown formatting for code blocks
+    let jsonText = content.replace(/```json\n?|\n?```/g, '').trim();
+    
+    // Try to find array brackets if there is extra text
+    const start = jsonText.indexOf('[');
+    const end = jsonText.lastIndexOf(']');
+    if (start !== -1 && end !== -1 && end > start) {
+        jsonText = jsonText.substring(start, end + 1);
+    }
+
+    const parsed = JSON.parse(jsonText);
+    if (Array.isArray(parsed)) return parsed as string[];
+    // Sometimes returns { "subtopics": [...] }
+    if (typeof parsed === 'object' && parsed.subtopics && Array.isArray(parsed.subtopics)) {
+        return parsed.subtopics as string[];
+    }
+    return [];
+  } catch (e) {
+    // Detailed error for debugging reordering since exact strings matter
+    console.error("Failed to parse AI reorder response:", content);
+    throw new Error("Failed to parse AI response");
+  }
+};
+
 export const generateSubtopics = async (
   apiKey: string,
   topicTitle: string,

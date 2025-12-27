@@ -163,12 +163,13 @@ export const useStore = create<AppState>((set, get) => ({
         } 
         else if (pendingJob.type === 'content') {
             if (!apiKey) throw new Error("Missing API Key");
-            const { topicId, label, prompt, model } = pendingJob.payload;
+            const { topicId, label, prompt, model, generateAudioAfter } = pendingJob.payload;
             
             const content = await generateAIContent(apiKey, prompt, model);
             
+            const blockId = uuidv4();
             await createContentBlock({
-                id: uuidv4(),
+                id: blockId,
                 topic_id: topicId,
                 label,
                 content,
@@ -178,6 +179,20 @@ export const useStore = create<AppState>((set, get) => ({
             // Only refresh if we are looking at this topic
             if (get().selectedTopicId === topicId) {
                 await get().refreshContentBlocks();
+            }
+
+            if (generateAudioAfter) {
+                // Fetch topic for title info
+                const topic = await getTopic(topicId);
+                
+                get().addJob('audio', {
+                    targetId: blockId,
+                    isBlock: true,
+                    topicId: topicId,
+                    topicTitle: topic?.title,
+                    blockLabel: label,
+                    text: content
+                });
             }
         }
         else if (pendingJob.type === 'audio') {

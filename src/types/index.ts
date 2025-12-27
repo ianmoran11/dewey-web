@@ -45,6 +45,7 @@ export interface Template {
   name: string;
   prompt: string;
   type: 'content' | 'subtopics';
+  auto_generate_audio?: boolean;
 }
 
 export interface Settings {

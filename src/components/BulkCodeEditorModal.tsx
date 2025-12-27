@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { X, Trash2, Save, ArrowDownAZ } from 'lucide-react';
+import { X, Trash2, Save, ArrowDownAZ, Sparkles } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { generateCodes } from '../utils/code';
 import { Topic } from '../types';
+import { reorderSubtopics } from '../services/ai';
 
 interface BulkCodeEditorModalProps {
     isOpen: boolean;
@@ -13,6 +14,7 @@ interface BulkCodeEditorModalProps {
 export const BulkCodeEditorModal = ({ isOpen, onClose, parentId }: BulkCodeEditorModalProps) => {
     const allTopics = useStore(s => s.topics);
     const updateTopicsBulk = useStore(s => s.updateTopicsBulk);
+    const settings = useStore(s => s.settings);
     
     const [items, setItems] = useState<Topic[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -52,6 +54,56 @@ export const BulkCodeEditorModal = ({ isOpen, onClose, parentId }: BulkCodeEdito
             ...item,
             code: newCodes[index]
         })));
+    };
+
+    const handleAIReorder = async () => {
+        if (!settings.openRouterKey) {
+            alert("Please configure OpenRouter API Key in settings first.");
+            return;
+        }
+
+        if (!items.length) return;
+
+        setIsLoading(true);
+        try {
+            const currentTitles = items.map(i => i.title);
+            const parentTitle = parentId ? allTopics.find(t => t.id === parentId)?.title || "Root" : "Root Topics";
+            
+            const reorderedTitles = await reorderSubtopics(
+                settings.openRouterKey,
+                parentTitle,
+                currentTitles,
+                settings.modelSubtopic
+            );
+
+            // Reconstruct logic: match titles back to items
+            const remainingItems = [...items];
+            const newOrder: Topic[] = [];
+
+            for (const title of reorderedTitles) {
+                // Find index of title in remaining items
+                // Using findIndex to handle duplicates correctly (picking one at a time)
+                const index = remainingItems.findIndex(i => i.title === title);
+                if (index !== -1) {
+                    newOrder.push(remainingItems[index]);
+                    remainingItems.splice(index, 1);
+                }
+            }
+            
+            // Append any items that weren't returned by AI (safeguard against hallucinations/omissions)
+            if (remainingItems.length > 0) {
+                console.warn("AI omitted some topics, appending to end:", remainingItems.map(i => i.title));
+                newOrder.push(...remainingItems);
+            }
+
+            setItems(newOrder);
+
+        } catch (e) {
+            console.error("AI Reorder failed", e);
+            alert("AI Reorder failed: " + (e instanceof Error ? e.message : String(e)));
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const handleClearAll = () => {
@@ -104,6 +156,15 @@ export const BulkCodeEditorModal = ({ isOpen, onClose, parentId }: BulkCodeEdito
                     >
                         <ArrowDownAZ size={16} />
                         Auto-Code
+                    </button>
+                    <button 
+                        onClick={handleAIReorder}
+                        disabled={isLoading}
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
+                        title="Reorder topics logically using AI (Textbook Order)"
+                    >
+                        <Sparkles size={16} />
+                        AI Sort
                     </button>
                     <button 
                         onClick={handleClearAll}

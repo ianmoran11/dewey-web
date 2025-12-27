@@ -135,6 +135,17 @@ export const MainArea = () => {
         setShowContentMenu(false);
         const targets = getTargetTopics();
 
+        // Check for audio auto-generation preference
+        // SQLocal/SQLite may return 0/1 for booleans, so we force cast to boolean.
+        let generateAudioAfter = !!template.auto_generate_audio;
+        
+        // If not enabled in template, prompt user
+        // This covers undefined, null, false, 0
+        if (!generateAudioAfter) {
+             const shouldGenerateAudio = window.confirm("Do you want to auto-generate audio for this content after text is generated?");
+             generateAudioAfter = shouldGenerateAudio;
+        }
+
         let queuedCount = 0;
         for (const target of targets) {
             try {
@@ -144,7 +155,8 @@ export const MainArea = () => {
                     topicId: target.id,
                     label: template.name,
                     prompt,
-                    model: settings.modelContent
+                    model: settings.modelContent,
+                    generateAudioAfter
                 });
                 queuedCount++;
             } catch (e: any) {
@@ -152,7 +164,7 @@ export const MainArea = () => {
             }
         }
         
-        if (queuedCount > 0) toast.success(`Content generation queued for ${queuedCount} topic(s)`);
+        if (queuedCount > 0) toast.success(`Content generation queued for ${queuedCount} topic(s)${generateAudioAfter ? ' (Audio included)' : ''}`);
         else toast.error("Failed to queue generation");
     }
 

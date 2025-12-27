@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../lib/store';
-import { X, Key, List, Trash2, Plus, BrainCircuit, Database, Download, Upload, AlertTriangle } from 'lucide-react';
+import { X, Key, List, Trash2, Plus, BrainCircuit, Database, Download, Upload, AlertTriangle, Volume2 } from 'lucide-react';
 import { getModels, OpenRouterModel } from '../services/ai';
 import { saveTemplate, deleteTemplate, exportDatabase, importDatabase, clearDatabase, getPromptHistory, clearPromptHistory, PromptHistoryEntry } from '../db/queries';
 import { v4 as uuidv4 } from 'uuid';
@@ -24,6 +24,7 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
     const [newTemplateName, setNewTemplateName] = useState('');
     const [newTemplatePrompt, setNewTemplatePrompt] = useState('');
     const [newTemplateType, setNewTemplateType] = useState<'content' | 'subtopics'>('content');
+    const [newTemplateAutoAudio, setNewTemplateAutoAudio] = useState(false);
     const [isAddingTemplate, setIsAddingTemplate] = useState(false);
 
     // Prompt History
@@ -70,11 +71,13 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
             id: uuidv4(),
             name: newTemplateName,
             prompt: newTemplatePrompt,
-            type: newTemplateType
+            type: newTemplateType,
+            auto_generate_audio: newTemplateAutoAudio
         });
         
         setNewTemplateName('');
         setNewTemplatePrompt('');
+        setNewTemplateAutoAudio(false);
         setIsAddingTemplate(false);
         await refreshTemplates();
         toast.success("Template added");
@@ -310,6 +313,16 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
                                                 </select>
                                             </div>
                                         </div>
+                                        <div className="flex items-center gap-2">
+                                            <input 
+                                                type="checkbox" 
+                                                id="newTemplateAutoAudio"
+                                                checked={newTemplateAutoAudio}
+                                                onChange={e => setNewTemplateAutoAudio(e.target.checked)}
+                                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                            />
+                                            <label htmlFor="newTemplateAutoAudio" className="text-xs text-gray-700">Auto-generate Audio after content generation</label>
+                                        </div>
                                         <div>
                                             <label className="text-xs font-semibold text-gray-600">Prompt Template</label>
                                             <p className="text-[10px] text-gray-500 mb-1">Variables: <code className="bg-gray-200 px-1 rounded">{'{topic}'}</code>, <code className="bg-gray-200 px-1 rounded">{'{neighbors}'}</code></p>
@@ -338,6 +351,11 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
                                                     <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider ${t.type === 'content' ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'}`}>
                                                         {t.type}
                                                     </span>
+                                                    {t.auto_generate_audio && (
+                                                        <span className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider bg-blue-100 text-blue-700 flex items-center gap-1">
+                                                            <Volume2 size={10} /> Auto-Audio
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 <p className="text-xs text-gray-500 mt-1 line-clamp-2 font-mono bg-gray-50 p-1 rounded inline-block">
                                                     {t.prompt}

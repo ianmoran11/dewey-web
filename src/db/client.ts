@@ -96,7 +96,8 @@ export const initDB = async () => {
       name TEXT NOT NULL,
       prompt TEXT NOT NULL,
       type TEXT NOT NULL, -- 'content' or 'subtopics'
-      is_default BOOLEAN DEFAULT 0
+      is_default BOOLEAN DEFAULT 0,
+      auto_generate_audio BOOLEAN DEFAULT 0
     );
   `;
 
@@ -104,6 +105,12 @@ export const initDB = async () => {
   try {
     await sql`ALTER TABLE content_blocks ADD COLUMN audio BLOB`;
     await sql`ALTER TABLE content_blocks ADD COLUMN has_audio BOOLEAN DEFAULT 0`;
+  } catch (e) {
+    // Ignore if columns already exist
+  }
+
+  try {
+    await sql`ALTER TABLE templates ADD COLUMN auto_generate_audio BOOLEAN DEFAULT 0`;
   } catch (e) {
     // Ignore if columns already exist
   }

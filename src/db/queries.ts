@@ -241,9 +241,9 @@ export const saveTemplate = async (template: Template) => {
     // Upsert
     const existing = await sql`SELECT id FROM templates WHERE id = ${template.id}`;
     if (existing.length > 0) {
-        await sql`UPDATE templates SET name=${template.name}, prompt=${template.prompt}, type=${template.type} WHERE id=${template.id}`;
+        await sql`UPDATE templates SET name=${template.name}, prompt=${template.prompt}, type=${template.type}, auto_generate_audio=${template.auto_generate_audio} WHERE id=${template.id}`;
     } else {
-        await sql`INSERT INTO templates (id, name, prompt, type, is_default) VALUES (${template.id}, ${template.name}, ${template.prompt}, ${template.type}, 0)`;
+        await sql`INSERT INTO templates (id, name, prompt, type, is_default, auto_generate_audio) VALUES (${template.id}, ${template.name}, ${template.prompt}, ${template.type}, 0, ${template.auto_generate_audio})`;
     }
 }
 
@@ -408,8 +408,8 @@ export const importDatabase = async (data: any) => {
     if (data.templates) {
         for (const t of data.templates) {
             await sql`
-                INSERT INTO templates (id, name, prompt, type, is_default)
-                VALUES (${t.id}, ${t.name}, ${t.prompt}, ${t.type}, ${t.is_default})
+                INSERT INTO templates (id, name, prompt, type, is_default, auto_generate_audio)
+                VALUES (${t.id}, ${t.name}, ${t.prompt}, ${t.type}, ${t.is_default}, ${t.auto_generate_audio})
             `;
         }
     }
