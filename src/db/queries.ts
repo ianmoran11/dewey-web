@@ -1,6 +1,7 @@
 import { sql } from './client';
 import { v4 as uuidv4 } from 'uuid';
 import { AudioEpisode, ContentBlock, Template, Topic } from '../types';
+import { getAudioFile, saveAudioFile, deleteAudioFile, getAudioFilename } from '../services/storage';
 
 export interface PromptHistoryEntry {
     id: string;
@@ -19,9 +20,27 @@ export const getTopics = async (): Promise<Topic[]> => {
   const rows = await sql`
     SELECT 
       t.id, t.parent_id, t.code, t.title, t.content, t.has_audio, t.created_at,
-      ((SELECT COUNT(*) FROM content_blocks WHERE topic_id = t.id) > 0 OR (t.content IS NOT NULL AND t.content != '')) AS has_content,
-      (SELECT COUNT(*) FROM content_blocks WHERE topic_id = t.id AND has_audio = 1) > 0 AS has_block_audio
+      (
+         CASE 
+            WHEN stats.block_count > 0 OR (t.content IS NOT NULL AND t.content != '') THEN 1 
+            ELSE 0 
+         END
+      ) AS has_content,
+      (
+         CASE 
+            WHEN stats.has_block_audio > 0 THEN 1 
+            ELSE 0 
+         END
+      ) AS has_block_audio
     FROM topics t 
+    LEFT JOIN (
+        SELECT 
+            topic_id, 
+            COUNT(*) as block_count, 
+            MAX(CASE WHEN has_audio = 1 THEN 1 ELSE 0 END) as has_block_audio
+        FROM content_blocks
+        GROUP BY topic_id
+    ) stats ON t.id = stats.topic_id
     ORDER BY t.code ASC, t.created_at ASC
   `;
   // Cast the result
@@ -35,13 +54,15 @@ export const getTopic = async (id: string): Promise<Topic | null> => {
 };
 
 export const getAudio = async (id: string): Promise<Blob | null> => {
-  const rows = await sql`SELECT audio FROM topics WHERE id = ${id}`;
-  if (rows.length === 0 || !rows[0].audio) return null;
-  // Convert Uint8Array (from DB) back to Blob for URL.createObjectURL
-  const uint8 = rows[0].audio as Uint8Array;
-  // DeepInfra Kokoro-82M typically returns WAV, not MP3.
-  // Using generic audio/wav or correct mime type is safest.
-  return new Blob([uint8 as any], { type: 'audio/wav' });
+    // Try file storage first
+    const file = await getAudioFile(getAudioFilename(id));
+    if (file) return file;
+
+    // Fallback to DB (legacy/migration)
+    const rows = await sql`SELECT audio FROM topics WHERE id = ${id}`;
+    if (rows.length === 0 || !rows[0].audio) return null;
+    const uint8 = rows[0].audio as Uint8Array;
+    return new Blob([uint8 as any], { type: 'audio/wav' });
 };
 
 export const updateTopicContent = async (id: string, content: string) => {
@@ -67,9 +88,10 @@ export const updateTopicParent = async (id: string, newParentId: string | null) 
 }
 
 export const saveTopicAudio = async (id: string, audioBlob: Blob) => {
-  const buffer = await audioBlob.arrayBuffer();
-  const data = new Uint8Array(buffer);
-  await sql`UPDATE topics SET audio = ${data}, has_audio = true WHERE id = ${id}`;
+    // Save to file
+    await saveAudioFile(getAudioFilename(id), audioBlob);
+    // Update DB metadata (ensure audio column is null to save space)
+    await sql`UPDATE topics SET has_audio = true, audio = NULL WHERE id = ${id}`;
 };
 
 export const createAudioEpisode = async (episode: {
@@ -81,8 +103,8 @@ export const createAudioEpisode = async (episode: {
   block_id?: string | null;
   audioBlob: Blob;
 }) => {
-  const buffer = await episode.audioBlob.arrayBuffer();
-  const data = new Uint8Array(buffer);
+  // Save to file
+  await saveAudioFile(getAudioFilename(episode.id), episode.audioBlob);
 
   await sql`
     INSERT INTO audio_episodes (id, created_at, title, scope, topic_id, block_id, audio)
@@ -93,7 +115,7 @@ export const createAudioEpisode = async (episode: {
       ${episode.scope},
       ${episode.topic_id},
       ${episode.block_id || null},
-      ${data}
+      ${new Uint8Array(0)}
     )
   `;
 };
@@ -103,10 +125,14 @@ export const updateAudioEpisodeTitle = async (id: string, title: string) => {
 };
 
 export const deleteAudioEpisode = async (id: string) => {
+  await deleteAudioFile(getAudioFilename(id));
   await sql`DELETE FROM audio_episodes WHERE id = ${id}`;
 };
 
 export const getAudioEpisodeAudio = async (id: string): Promise<Blob | null> => {
+  const file = await getAudioFile(getAudioFilename(id));
+  if (file) return file;
+
   const rows = await sql`SELECT audio FROM audio_episodes WHERE id = ${id}`;
   if (rows.length === 0 || !rows[0].audio) return null;
   const uint8 = rows[0].audio as Uint8Array;
@@ -142,7 +168,27 @@ export const createTopic = async (topic: Topic) => {
 };
 
 export const deleteTopic = async (id: string) => {
-  // Cascading delete handles children if configured, but let's be safe later
+  // We should ideally clean up audio files for cascading children too,
+  // but that requires fetching the tree. For now, we at least delete the topic's own audio.
+  await deleteAudioFile(getAudioFilename(id));
+  
+  // Clean up content block audio? (If they are files)
+  // We can't easily know all block IDs without selecting. 
+  // Optimization: Select block IDs first.
+  try {
+      const blocks = await sql`SELECT id FROM content_blocks WHERE topic_id = ${id}`;
+      for (const b of blocks) {
+          await deleteAudioFile(getAudioFilename(b.id as string));
+      }
+      // Also audio_episodes?
+      const episodes = await sql`SELECT id FROM audio_episodes WHERE topic_id = ${id}`;
+      for (const ep of episodes) {
+           await deleteAudioFile(getAudioFilename(ep.id as string));
+      }
+  } catch (e) {
+      console.warn("Failed to cleanup files during delete", e);
+  }
+
   await sql`DELETE FROM topics WHERE id = ${id}`;
 };
 
@@ -206,6 +252,9 @@ export const getContentBlocks = async (topicId: string): Promise<ContentBlock[]>
 }
 
 export const getBlockAudio = async (id: string): Promise<Blob | null> => {
+    const file = await getAudioFile(getAudioFilename(id));
+    if (file) return file;
+
     const rows = await sql`SELECT audio FROM content_blocks WHERE id = ${id}`;
     if (rows.length === 0 || !rows[0].audio) return null;
     const uint8 = rows[0].audio as Uint8Array;
@@ -213,9 +262,8 @@ export const getBlockAudio = async (id: string): Promise<Blob | null> => {
 };
 
 export const saveBlockAudio = async (id: string, audioBlob: Blob) => {
-    const buffer = await audioBlob.arrayBuffer();
-    const data = new Uint8Array(buffer);
-    await sql`UPDATE content_blocks SET audio = ${data}, has_audio = true WHERE id = ${id}`;
+    await saveAudioFile(getAudioFilename(id), audioBlob);
+    await sql`UPDATE content_blocks SET has_audio = true, audio = NULL WHERE id = ${id}`;
 };
 
 export const createContentBlock = async (block: ContentBlock) => {
@@ -230,6 +278,7 @@ export const updateContentBlock = async (id: string, content: string) => {
 }
 
 export const deleteContentBlock = async (id: string) => {
+    await deleteAudioFile(getAudioFilename(id));
     await sql`DELETE FROM content_blocks WHERE id = ${id}`;
 }
 
@@ -340,13 +389,59 @@ export const exportDatabase = async () => {
         });
     };
 
+    // Helper to attach file-based audio to rows before export
+    const enrichWithFiles = async (rows: any[]) => {
+        for (const row of rows) {
+            // Check if audio file exists if audio is missing but flagged
+            // If row.audio is already present (from DB), we use it.
+            // If row.audio is NULL, but we expect it, we try to load file.
+            if (!row.audio) {
+                // Logic to decide if we should look for file
+                // Audio Episodes always have audio
+                // Topics/Blocks have 'has_audio' flag
+                const shouldCheck = row.has_audio === 1 || row.has_audio === true || 
+                                   (row.scope && row.topic_id); // AudioEpisode heuristic if table name unknown here
+                
+                if (shouldCheck) {
+                    try {
+                        const blob = await getAudioFile(getAudioFilename(row.id));
+                        if (blob) {
+                            const buf = await blob.arrayBuffer();
+                            row.audio = new Uint8Array(buf);
+                            row.has_audio = true; // Ensure consistency
+                        }
+                    } catch (e) {
+                        // ignore missing file
+                    }
+                }
+            }
+        }
+        return rows;
+    };
+
     try {
         const topics = await sql`SELECT * FROM topics`;
+        await enrichWithFiles(topics as any[]);
+
         const contentBlocks = await sql`SELECT * FROM content_blocks`;
+        await enrichWithFiles(contentBlocks as any[]);
+        
         const templates = await sql`SELECT * FROM templates`;
         const settings = await sql`SELECT * FROM settings`;
         const promptHistory = await sql`SELECT * FROM prompt_history`;
+        
         const audioEpisodes = await sql`SELECT * FROM audio_episodes`;
+        // Audio episodes don't typically have 'has_audio' column, so we check all or by ID
+        // The enrich helper uses a heuristic, but let's be explicit
+        for (const ep of (audioEpisodes as any[])) {
+             if (!ep.audio) {
+                 const blob = await getAudioFile(getAudioFilename(ep.id));
+                 if (blob) {
+                     const buf = await blob.arrayBuffer();
+                     ep.audio = new Uint8Array(buf);
+                 }
+             }
+        }
         
         return {
             timestamp: Date.now(),
@@ -393,17 +488,29 @@ export const importDatabase = async (data: any) => {
 
     // Import Topics
     for (const t of data.topics) {
+        const audioData = resolveAudio(t.audio);
+        if (audioData) {
+             const blob = new Blob([audioData as any], { type: 'audio/wav' });
+             await saveAudioFile(getAudioFilename(t.id), blob);
+        }
+
         await sql`
             INSERT INTO topics (id, parent_id, code, title, content, has_audio, created_at, audio)
-            VALUES (${t.id}, ${t.parent_id}, ${t.code}, ${t.title}, ${t.content}, ${t.has_audio}, ${t.created_at}, ${resolveAudio(t.audio)})
+            VALUES (${t.id}, ${t.parent_id}, ${t.code}, ${t.title}, ${t.content}, ${t.has_audio}, ${t.created_at}, NULL)
         `;
     }
 
     // Import Content Blocks
     for (const b of data.contentBlocks) {
+         const audioData = resolveAudio(b.audio);
+         if (audioData) {
+             const blob = new Blob([audioData as any], { type: 'audio/wav' });
+             await saveAudioFile(getAudioFilename(b.id), blob);
+         }
+
          await sql`
             INSERT INTO content_blocks (id, topic_id, label, content, has_audio, created_at, audio)
-            VALUES (${b.id}, ${b.topic_id}, ${b.label}, ${b.content}, ${b.has_audio}, ${b.created_at}, ${resolveAudio(b.audio)})
+            VALUES (${b.id}, ${b.topic_id}, ${b.label}, ${b.content}, ${b.has_audio}, ${b.created_at}, NULL)
         `;
     }
 
@@ -439,10 +546,19 @@ export const importDatabase = async (data: any) => {
     // Import Audio Episodes (optional, for newer backups)
     if (data.audioEpisodes) {
         for (const ae of data.audioEpisodes) {
+            const audioData = resolveAudio(ae.audio);
+            if (audioData) {
+                const blob = new Blob([audioData as any], { type: 'audio/wav' });
+                await saveAudioFile(getAudioFilename(ae.id), blob);
+            }
+
             await sql`
                 INSERT INTO audio_episodes (id, created_at, title, scope, topic_id, block_id, audio)
-                VALUES (${ae.id}, ${ae.created_at}, ${ae.title}, ${ae.scope}, ${ae.topic_id}, ${ae.block_id || null}, ${resolveAudio(ae.audio)})
+                VALUES (${ae.id}, ${ae.created_at}, ${ae.title}, ${ae.scope}, ${ae.topic_id}, ${ae.block_id || null}, ${new Uint8Array(0)})
             `;
         }
     }
+    
+    // Mark migration as done since we imported directly to files
+    await sql`INSERT INTO settings (key, value) VALUES ('storage_migration_v2_done', 'true')`;
 }

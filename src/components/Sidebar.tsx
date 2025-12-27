@@ -9,6 +9,34 @@ import { BulkCodeEditorModal } from './BulkCodeEditorModal';
 import { interpolatePrompt } from '../utils/prompts';
 import toast from 'react-hot-toast';
 
+const MigrationStatus = () => {
+    const progress = useStore(s => s.migrationProgress);
+    if (!progress.isMigrating) return null;
+    
+    const percent = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+    
+    return (
+        <div className="p-3 border-t border-gray-200 bg-amber-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+             <div className="flex items-center justify-between mb-1">
+                 <span className="text-xs font-bold text-amber-900 uppercase tracking-widest flex items-center gap-2">
+                    <Loader2 size={12} className="animate-spin text-amber-600" />
+                    Optimizing Data
+                 </span>
+                 <span className="text-xs font-medium text-amber-800">{percent}%</span>
+             </div>
+             <div className="w-full bg-amber-200 rounded-full h-1.5 mt-1">
+                 <div 
+                    className="bg-amber-500 h-1.5 rounded-full transition-all duration-300"
+                    style={{ width: `${percent}%` }}
+                 />
+             </div>
+             <div className="text-[10px] text-amber-700 mt-1.5">
+                 {progress.current} / {progress.total} items moved. App is usable while this runs.
+             </div>
+        </div>
+    )
+}
+
 const QueueStatus = () => {
     const jobs = useStore(s => s.jobs);
     const cancelQueue = useStore(s => s.cancelQueue);
@@ -490,6 +518,7 @@ export const Sidebar = ({ onOpenSettings, onOpenAudioLibrary, width, isOpen, set
                 parentId={bulkCodeParentId}
             />
 
+            <MigrationStatus />
             <QueueStatus />
 
             {/* Footer Actions */}

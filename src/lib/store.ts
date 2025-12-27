@@ -18,6 +18,9 @@ const MAX_CONCURRENT_JOBS = 3;
 const JOB_DELAY_MS = 5000;
 
 interface AppState {
+  // Migration Progress
+  migrationProgress: { current: number; total: number; isMigrating: boolean };
+  
   jobs: Job[];
   lastJobStartedAt: number;
   unreadTopics: Set<string>;
@@ -50,6 +53,8 @@ interface AppState {
   moveTopic: (id: string, newParentId: string | null) => Promise<void>;
   deleteTopic: (id: string) => Promise<void>;
   
+  setMigrationProgress: (current: number, total: number) => void;
+  
   // Job Queue Actions
   addJob: (type: JobType, payload: any) => void;
   removeJob: (id: string) => void;
@@ -59,6 +64,8 @@ interface AppState {
 }
 
 export const useStore = create<AppState>((set, get) => ({
+  migrationProgress: { current: 0, total: 0, isMigrating: false },
+  
   jobs: [],
   lastJobStartedAt: 0,
   unreadTopics: new Set(),
@@ -303,12 +310,18 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
+  setMigrationProgress: (current, total) => {
+      set({ migrationProgress: { current, total, isMigrating: current < total } });
+  },
+
   init: async () => {
     if (initialized) return;
     initialized = true;
 
     try {
-      await initDB();
+      await initDB((current, total) => {
+          get().setMigrationProgress(current, total);
+      });
       await seedDatabase();
       
       const openRouterKey = await getSettings('openRouterKey');

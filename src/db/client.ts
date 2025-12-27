@@ -1,4 +1,5 @@
 import { SQLocal } from 'sqlocal';
+import { migrateAudioToFiles, MigrationProgressCallback } from './migration';
 
 // Initialize SQLocal with the database filename
 // This file will be stored in the Origin Private File System (OPFS)
@@ -6,7 +7,7 @@ const client = new SQLocal('dewey-db.sqlite3');
 
 export const { sql, transaction } = client;
 
-export const initDB = async () => {
+export const initDB = async (onProgress?: MigrationProgressCallback) => {
   console.log('Initializing Database...');
   
   // Create tables
@@ -115,55 +116,76 @@ export const initDB = async () => {
     // Ignore if columns already exist
   }
 
-  // Backfill existing topic/block audio into audio_episodes (one-time-ish).
-  // Topic audio
-  try {
-    await sql`
-      INSERT INTO audio_episodes (id, created_at, title, scope, topic_id, block_id, audio)
-      SELECT
-        lower(hex(randomblob(16))) as id,
-        COALESCE(t.created_at, strftime('%s','now')*1000) as created_at,
-        'Narration: ' || t.title as title,
-        'topic' as scope,
-        t.id as topic_id,
-        NULL as block_id,
-        t.audio as audio
-      FROM topics t
-      WHERE (t.has_audio = 1 OR t.has_audio = true)
-        AND t.audio IS NOT NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM audio_episodes ae
-          WHERE ae.scope = 'topic' AND ae.topic_id = t.id
-        );
-    `;
-  } catch (e) {
-    // ignore backfill errors
+  // Check if backfill has already run to avoid expensive table scans on startup
+  const backfillCheck = await sql`SELECT value FROM settings WHERE key = 'init_audio_backfill_done'`;
+  
+  if (backfillCheck.length === 0) {
+      console.log("Running one-time audio backfill...");
+      // Backfill existing topic/block audio into audio_episodes (one-time-ish).
+      // Topic audio
+      try {
+        await sql`
+          INSERT INTO audio_episodes (id, created_at, title, scope, topic_id, block_id, audio)
+          SELECT
+            lower(hex(randomblob(16))) as id,
+            COALESCE(t.created_at, strftime('%s','now')*1000) as created_at,
+            'Narration: ' || t.title as title,
+            'topic' as scope,
+            t.id as topic_id,
+            NULL as block_id,
+            t.audio as audio
+          FROM topics t
+          WHERE (t.has_audio = 1 OR t.has_audio = true)
+            AND t.audio IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM audio_episodes ae
+              WHERE ae.scope = 'topic' AND ae.topic_id = t.id
+            );
+        `;
+      } catch (e) {
+        console.warn("Topic audio backfill failed", e);
+      }
+
+      // Block audio
+      try {
+        await sql`
+          INSERT INTO audio_episodes (id, created_at, title, scope, topic_id, block_id, audio)
+          SELECT
+            lower(hex(randomblob(16))) as id,
+            COALESCE(cb.created_at, strftime('%s','now')*1000) as created_at,
+            'Narration: ' || t.title || ' — ' || cb.label as title,
+            'block' as scope,
+            cb.topic_id as topic_id,
+            cb.id as block_id,
+            cb.audio as audio
+          FROM content_blocks cb
+          JOIN topics t ON t.id = cb.topic_id
+          WHERE (cb.has_audio = 1 OR cb.has_audio = true)
+            AND cb.audio IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM audio_episodes ae
+              WHERE ae.scope = 'block' AND ae.block_id = cb.id
+            );
+        `;
+      } catch (e) {
+        console.warn("Block audio backfill failed", e);
+      }
+      
+      try {
+          await sql`INSERT INTO settings (key, value) VALUES ('init_audio_backfill_done', 'true')`;
+      } catch (e) {
+          // ignore
+      }
   }
 
-  // Block audio
-  try {
-    await sql`
-      INSERT INTO audio_episodes (id, created_at, title, scope, topic_id, block_id, audio)
-      SELECT
-        lower(hex(randomblob(16))) as id,
-        COALESCE(cb.created_at, strftime('%s','now')*1000) as created_at,
-        'Narration: ' || t.title || ' — ' || cb.label as title,
-        'block' as scope,
-        cb.topic_id as topic_id,
-        cb.id as block_id,
-        cb.audio as audio
-      FROM content_blocks cb
-      JOIN topics t ON t.id = cb.topic_id
-      WHERE (cb.has_audio = 1 OR cb.has_audio = true)
-        AND cb.audio IS NOT NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM audio_episodes ae
-          WHERE ae.scope = 'block' AND ae.block_id = cb.id
-        );
-    `;
-  } catch (e) {
-    // ignore backfill errors
-  }
+  // Phase 2 Migration: Move Blobs to OPFS
+  // Run in background to avoid blocking app startup
+  // The app logic handles fallback to DB if file not yet moved
+  migrateAudioToFiles(onProgress).then(() => {
+      console.log("Audio migration background task finished");
+  }).catch(e => {
+      console.error("Audio migration background task failed", e);
+  });
 
   console.log('Database Initialized.');
 };
