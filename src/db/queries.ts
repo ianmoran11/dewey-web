@@ -19,7 +19,7 @@ export interface PromptHistoryEntry {
 export const getTopics = async (): Promise<Topic[]> => {
   const rows = await sql`
     SELECT 
-      t.id, t.parent_id, t.code, t.title, t.content, t.has_audio, t.created_at,
+      t.id, t.parent_id, t.code, t.title, t.content, t.has_audio, t.is_pinned, t.created_at,
       (
          CASE 
             WHEN stats.block_count > 0 OR (t.content IS NOT NULL AND t.content != '') THEN 1 
@@ -83,6 +83,9 @@ export const updateTopic = async (topic: Partial<Topic> & { id: string }) => {
     }
     if (topic.parent_id !== undefined) {
         await sql`UPDATE topics SET parent_id = ${topic.parent_id} WHERE id = ${topic.id}`;
+    }
+    if (topic.is_pinned !== undefined) {
+        await sql`UPDATE topics SET is_pinned = ${topic.is_pinned} WHERE id = ${topic.id}`;
     }
 }
 

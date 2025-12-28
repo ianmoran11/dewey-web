@@ -20,6 +20,7 @@ export const initDB = async (onProgress?: MigrationProgressCallback) => {
       content TEXT,
       audio BLOB,
       has_audio BOOLEAN DEFAULT 0,
+      is_pinned BOOLEAN DEFAULT 0,
       created_at INTEGER,
       FOREIGN KEY(parent_id) REFERENCES topics(id) ON DELETE CASCADE
     );
@@ -103,6 +104,12 @@ export const initDB = async (onProgress?: MigrationProgressCallback) => {
   `;
 
   // Migrations for existing databases
+  try {
+    await sql`ALTER TABLE topics ADD COLUMN is_pinned BOOLEAN DEFAULT 0`;
+  } catch (e) {
+    // Ignore if columns already exist
+  }
+
   try {
     await sql`ALTER TABLE content_blocks ADD COLUMN audio BLOB`;
     await sql`ALTER TABLE content_blocks ADD COLUMN has_audio BOOLEAN DEFAULT 0`;

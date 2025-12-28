@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useStore } from '../lib/store';
 import { buildTree, getAllDescendantIds } from '../utils/tree';
-import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2, X, MoreHorizontal, Plus, Trash2, Edit2, ArrowRight, AlignLeft, Headphones, Wand2, ChevronUp, Library, ArrowDownAZ } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2, X, MoreHorizontal, Plus, Trash2, Edit2, ArrowRight, AlignLeft, Headphones, Wand2, ChevronUp, Library, ArrowDownAZ, Pin, ListChecks } from 'lucide-react';
 import { TopicNode } from '../types';
 import { TopicModal } from './TopicModal';
 import { MoveTopicModal } from './MoveTopicModal';
@@ -161,6 +161,7 @@ const TreeNode = ({ node, level, onSelect, onAction }: { node: TopicNode, level:
                 {/* Icons for status */}
                 {!!node.has_content && <AlignLeft size={12} className="text-gray-600 ml-2" />}
                 {!!(node.has_audio || node.has_block_audio) && <Headphones size={12} className="text-gray-600 ml-2" />}
+                {!!node.is_pinned && <Pin size={12} className="text-gray-600 ml-2 fill-gray-600" transform="rotate(45)" />}
                 {isQueued && <Loader2 size={12} className="animate-spin text-yellow-600 ml-2" />}
                 {isUnread && <div className="w-2 h-2 rounded-full bg-green-500 ml-2" />}
 
@@ -199,6 +200,19 @@ const TreeNode = ({ node, level, onSelect, onAction }: { node: TopicNode, level:
                                 <ArrowRight size={12} /> Move
                             </button>
                             <button 
+                                onClick={(e) => { e.stopPropagation(); onAction('pin', node); }}
+                                className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                            >
+                                <Pin size={12} className={node.is_pinned ? "fill-gray-700" : ""} /> 
+                                {node.is_pinned ? "Unpin" : "Pin"}
+                            </button>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); onAction('select_subtopics', node); }}
+                                className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                            >
+                                <ListChecks size={12} /> Select Subtopics
+                            </button>
+                            <button 
                                 onClick={(e) => { e.stopPropagation(); onAction('manage_codes', node); }}
                                 className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2"
                             >
@@ -222,6 +236,60 @@ const TreeNode = ({ node, level, onSelect, onAction }: { node: TopicNode, level:
     )
 }
 
+const PinnedSection = ({ onSelect, onAction }: { onSelect: (id: string) => void, onAction: (action: string, node: TopicNode) => void }) => {
+    const topics = useStore(s => s.topics);
+    
+    // We need the full tree structure to render pinned items with their children
+    const pinnedNodes = useMemo(() => {
+        const fullTree = buildTree(topics);
+        const pinned: TopicNode[] = [];
+        const find = (nodes: TopicNode[]) => {
+            for (const node of nodes) {
+                if (node.is_pinned) pinned.push(node);
+                if (node.children) find(node.children);
+            }
+        }
+        find(fullTree);
+        return pinned.sort((a, b) => a.title.localeCompare(b.title));
+    }, [topics]);
+    
+    const [expanded, setExpanded] = useState(() => {
+        try {
+            const saved = localStorage.getItem('dewey_pinned_expanded');
+            return saved !== 'false';
+        } catch { return true; }
+    });
+
+    const toggle = () => {
+        const newVal = !expanded;
+        setExpanded(newVal);
+        localStorage.setItem('dewey_pinned_expanded', String(newVal));
+    };
+    
+    if (pinnedNodes.length === 0) return null;
+    
+    return (
+        <div className="px-3 pb-2 pt-2 border-b border-gray-200 flex flex-col gap-1">
+            <button 
+                onClick={toggle}
+                className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1 hover:text-gray-600 transition-colors w-full focus:outline-none"
+            >
+                {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                <Pin size={10} className="fill-current" /> 
+                Pinned
+            </button>
+            
+            {expanded && (
+                <div className="space-y-0.5 animate-in fade-in slide-in-from-top-1 duration-200">
+                    {pinnedNodes.map(node => (
+                        <TreeNode key={'pin-' + node.id} node={node} level={0} onSelect={onSelect} onAction={onAction} />
+                    ))}
+                </div>
+            )}
+        </div>
+    )
+}
+
 interface SidebarProps {
     onOpenSettings: () => void;
     onOpenAudioLibrary: () => void;
@@ -240,6 +308,7 @@ export const Sidebar = ({ onOpenSettings, onOpenAudioLibrary, width, isOpen, set
 
     const selectTopic = useStore(s => s.selectTopic);
     const deleteTopic = useStore(s => s.deleteTopic);
+    const toggleTopicPin = useStore(s => s.toggleTopicPin);
 
     const [search, setSearch] = useState('');
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -257,6 +326,7 @@ export const Sidebar = ({ onOpenSettings, onOpenAudioLibrary, width, isOpen, set
     const [bulkCodeModalOpen, setBulkCodeModalOpen] = useState(false);
     const [bulkCodeParentId, setBulkCodeParentId] = useState<string | null>(null);
     const checkedTopicIds = useStore(s => s.checkedTopicIds);
+    const setCheckedTopicIds = useStore(s => s.setCheckedTopicIds);
     const clearCheckedTopicIds = useStore(s => s.clearCheckedTopicIds);
 
     useEffect(() => {
@@ -372,6 +442,21 @@ export const Sidebar = ({ onOpenSettings, onOpenAudioLibrary, width, isOpen, set
             setModalMode('edit');
             setTargetNode(node);
             setModalOpen(true);
+        } else if (action === 'pin') {
+            await toggleTopicPin(node.id);
+        } else if (action === 'select_subtopics') {
+            const descendants = getAllDescendantIds(node);
+            const newChecked = new Set(checkedTopicIds);
+            
+            // 1. Uncheck parent (node itself)
+            newChecked.delete(node.id);
+            
+            // 2. Check all descendants (excluding parent)
+            descendants.forEach(id => {
+                if (id !== node.id) newChecked.add(id);
+            });
+            
+            setCheckedTopicIds(newChecked);
         } else if (action === 'move') {
             // For move, we need the actual node objects with hierarchy for calculations?
             // Actually, MoveTopicModal just takes TopicNode root list to build tree, 
@@ -489,6 +574,8 @@ export const Sidebar = ({ onOpenSettings, onOpenAudioLibrary, width, isOpen, set
             </div>
             
             <div className="flex-1 overflow-auto py-2 custom-scrollbar pb-44">
+                <PinnedSection onSelect={handleSelectTopic} onAction={handleAction} />
+                
                 {tree.length === 0 ? (
                     <div className="text-center py-8 text-gray-400 text-sm">No topics found</div>
                 ) : (

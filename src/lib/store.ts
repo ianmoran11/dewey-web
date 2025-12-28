@@ -51,6 +51,7 @@ interface AppState {
   updateTopicDetails: (id: string, title: string, code?: string) => Promise<void>;
   updateTopicsBulk: (updates: { id: string, title: string, code?: string }[]) => Promise<void>;
   moveTopic: (id: string, newParentId: string | null) => Promise<void>;
+  toggleTopicPin: (id: string) => Promise<void>;
   deleteTopic: (id: string) => Promise<void>;
   
   setMigrationProgress: (current: number, total: number) => void;
@@ -435,6 +436,21 @@ export const useStore = create<AppState>((set, get) => ({
           id,
           title,
           code
+      });
+      await get().refreshTopics();
+      if (get().selectedTopicId === id) {
+          const updated = await getTopic(id);
+          set({ selectedTopic: updated });
+      }
+  },
+
+  toggleTopicPin: async (id: string) => {
+      const topic = get().topics.find(t => t.id === id);
+      if (!topic) return;
+      const newPinned = !topic.is_pinned;
+      await updateTopic({
+          id,
+          is_pinned: newPinned
       });
       await get().refreshTopics();
       if (get().selectedTopicId === id) {

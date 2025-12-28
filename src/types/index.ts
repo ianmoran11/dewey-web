@@ -8,6 +8,7 @@ export interface Topic {
   has_audio: boolean;
   has_content?: boolean;
   has_block_audio?: boolean;
+  is_pinned?: boolean;
   created_at: number;
 }
 
