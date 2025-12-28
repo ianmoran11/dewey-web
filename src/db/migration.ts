@@ -53,30 +53,40 @@ export const migrateAudioToFiles = async (onProgress?: MigrationProgressCallback
             if (rows.length === 0) break;
 
             for (const row of rows) {
+                let success = true;
                 if (row.audio) {
                     try {
                         const blob = new Blob([row.audio as any], { type: 'audio/wav' });
                         await saveAudioFile(getAudioFilename(row.id), blob);
                     } catch (e) {
                          console.error(`Failed to migrate audio for ${table} ${row.id}`, e);
-                         // Continue? If we fail to save, we shouldn't nullify DB.
-                         // But if we retry loop, we get stuck. 
-                         // For now, log and maybe skip nullify? Or try to continue.
+                         success = false;
                     }
                 }
                 
-                // Nullify DB column to free space (and mark as processed for the loop)
-                // Nullify DB column to free space (and mark as processed for the loop)
-                if (table === 'topics') {
-                    await sql`UPDATE topics SET audio = NULL WHERE id = ${row.id}`;
-                } else if (table === 'content_blocks') {
-                    await sql`UPDATE content_blocks SET audio = NULL WHERE id = ${row.id}`;
-                } else if (table === 'audio_episodes') {
-                    // audio_episodes has NOT NULL constraint, so usage empty blob (0 bytes)
-                    await sql`UPDATE audio_episodes SET audio = ${new Uint8Array(0)} WHERE id = ${row.id}`;
+                // Only nullify DB if save was successful
+                if (success) {
+                    if (table === 'topics') {
+                        await sql`UPDATE topics SET audio = NULL WHERE id = ${row.id}`;
+                    } else if (table === 'content_blocks') {
+                        await sql`UPDATE content_blocks SET audio = NULL WHERE id = ${row.id}`;
+                    } else if (table === 'audio_episodes') {
+                        // audio_episodes has NOT NULL constraint, so usage empty blob (0 bytes)
+                        await sql`UPDATE audio_episodes SET audio = ${new Uint8Array(0)} WHERE id = ${row.id}`;
+                    }
+                    processed++;
+                    totalProcessed++;
+                } else {
+                    console.warn(`Skipping nullify for ${table} ${row.id} due to save failure`);
+                    // If we skip, we might hit infinite loop because the query sorts by "audio IS NOT NULL"
+                    // To avoid loop, we should probably break or handle retries intelligently.
+                    // But for now, ensuring no data loss is prioritized.
+                    // The loop iterates LIMIT 50. If we skip one, it remains "audio IS NOT NULL".
+                    // The next iteration will pick it up again.
+                    // We must avoid infinite loop.
+                    // Maybe we can abort migration for this session?
+                    break;
                 }
-                processed++;
-                totalProcessed++;
                 
                 if (onProgress && totalItems > 0) {
                     onProgress(totalProcessed, totalItems);

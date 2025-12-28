@@ -56,12 +56,15 @@ export const getTopic = async (id: string): Promise<Topic | null> => {
 export const getAudio = async (id: string): Promise<Blob | null> => {
     // Try file storage first
     const file = await getAudioFile(getAudioFilename(id));
-    if (file) return file;
+    if (file && file.size > 0) return file;
 
     // Fallback to DB (legacy/migration)
     const rows = await sql`SELECT audio FROM topics WHERE id = ${id}`;
     if (rows.length === 0 || !rows[0].audio) return null;
+    
     const uint8 = rows[0].audio as Uint8Array;
+    if (uint8.length === 0) return null; // Handle migrated-but-missing-file case
+    
     return new Blob([uint8 as any], { type: 'audio/wav' });
 };
 
@@ -131,11 +134,14 @@ export const deleteAudioEpisode = async (id: string) => {
 
 export const getAudioEpisodeAudio = async (id: string): Promise<Blob | null> => {
   const file = await getAudioFile(getAudioFilename(id));
-  if (file) return file;
+  if (file && file.size > 0) return file;
 
   const rows = await sql`SELECT audio FROM audio_episodes WHERE id = ${id}`;
   if (rows.length === 0 || !rows[0].audio) return null;
+  
   const uint8 = rows[0].audio as Uint8Array;
+  if (uint8.length === 0) return null;
+  
   return new Blob([uint8 as any], { type: 'audio/wav' });
 };
 
@@ -253,11 +259,12 @@ export const getContentBlocks = async (topicId: string): Promise<ContentBlock[]>
 
 export const getBlockAudio = async (id: string): Promise<Blob | null> => {
     const file = await getAudioFile(getAudioFilename(id));
-    if (file) return file;
+    if (file && file.size > 0) return file;
 
     const rows = await sql`SELECT audio FROM content_blocks WHERE id = ${id}`;
     if (rows.length === 0 || !rows[0].audio) return null;
     const uint8 = rows[0].audio as Uint8Array;
+    if (uint8.length === 0) return null;
     return new Blob([uint8 as any], { type: 'audio/wav' });
 };
 
