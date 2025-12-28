@@ -133,16 +133,30 @@ export const deleteAudioEpisode = async (id: string) => {
 };
 
 export const getAudioEpisodeAudio = async (id: string): Promise<Blob | null> => {
+  // 1. Try file storage for the episode specifically
   const file = await getAudioFile(getAudioFilename(id));
   if (file && file.size > 0) return file;
 
-  const rows = await sql`SELECT audio FROM audio_episodes WHERE id = ${id}`;
-  if (rows.length === 0 || !rows[0].audio) return null;
+  // 2. Fetch metadata + try DB fallback
+  const rows = await sql`SELECT audio, scope, topic_id, block_id FROM audio_episodes WHERE id = ${id}`;
+  if (rows.length === 0) return null;
   
+  // Check if DB has valid blob
   const uint8 = rows[0].audio as Uint8Array;
-  if (uint8.length === 0) return null;
-  
-  return new Blob([uint8 as any], { type: 'audio/wav' });
+  if (uint8 && uint8.length > 0) {
+      return new Blob([uint8 as any], { type: 'audio/wav' });
+  }
+
+  // 3. Fallback to Source (Topic/Block) Audio
+  // This handles cases where the episode file might be missing/corrupted but the source content still exists
+  const ep = rows[0];
+  if (ep.scope === 'topic' && ep.topic_id) {
+      return await getAudio(ep.topic_id as string);
+  } else if (ep.scope === 'block' && ep.block_id) {
+      return await getBlockAudio(ep.block_id as string);
+  }
+
+  return null;
 };
 
 export const getAudioEpisodes = async (): Promise<AudioEpisode[]> => {
