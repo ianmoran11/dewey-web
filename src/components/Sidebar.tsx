@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useStore } from '../lib/store';
-import { buildTree, getAllDescendantIds } from '../utils/tree';
+import { buildTree } from '../utils/tree';
 import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2, X, MoreHorizontal, Plus, Trash2, Edit2, ArrowRight, AlignLeft, Headphones, Wand2, ChevronUp, Library, ArrowDownAZ, Pin, ListChecks } from 'lucide-react';
 import { TopicNode } from '../types';
 import { TopicModal } from './TopicModal';
@@ -93,15 +93,10 @@ const TreeNode = ({ node, level, onSelect, onAction }: { node: TopicNode, level:
         e.stopPropagation();
         const newChecked = new Set(checkedTopicIds);
         
-        // If has children, toggle all descendants
-        // Even if no children, logic holds (descendants=[node.id])
-        // But wait, getAllDescendantIds includes the node itself.
-        const descendants = getAllDescendantIds(node);
-        
         if (isChecked) {
-            descendants.forEach(id => newChecked.delete(id));
+            newChecked.delete(node.id);
         } else {
-            descendants.forEach(id => newChecked.add(id));
+            newChecked.add(node.id);
         }
         
         setCheckedTopicIds(newChecked);
@@ -445,15 +440,14 @@ export const Sidebar = ({ onOpenSettings, onOpenAudioLibrary, width, isOpen, set
         } else if (action === 'pin') {
             await toggleTopicPin(node.id);
         } else if (action === 'select_subtopics') {
-            const descendants = getAllDescendantIds(node);
             const newChecked = new Set(checkedTopicIds);
             
             // 1. Uncheck parent (node itself)
             newChecked.delete(node.id);
             
-            // 2. Check all descendants (excluding parent)
-            descendants.forEach(id => {
-                if (id !== node.id) newChecked.add(id);
+            // 2. Check direct children ONLY
+            node.children.forEach(child => {
+                newChecked.add(child.id);
             });
             
             setCheckedTopicIds(newChecked);
