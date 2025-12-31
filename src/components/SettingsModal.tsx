@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../lib/store';
-import { X, Key, List, Trash2, Plus, BrainCircuit, Database, Download, Upload, AlertTriangle, Volume2 } from 'lucide-react';
+import { X, Key, List, Trash2, Plus, BrainCircuit, Database, Download, Upload, AlertTriangle, Volume2, Edit2 } from 'lucide-react';
 import { getModels, OpenRouterModel } from '../services/ai';
 import { saveTemplate, deleteTemplate, exportDatabase, importDatabase, clearDatabase, getPromptHistory, clearPromptHistory, PromptHistoryEntry } from '../db/queries';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
+import { Template } from '../types';
 
 export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
     const { settings, updateSetting, templates, refreshTemplates, refreshTopics } = useStore();
@@ -26,6 +27,7 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
     const [newTemplateType, setNewTemplateType] = useState<'content' | 'subtopics'>('content');
     const [newTemplateAutoAudio, setNewTemplateAutoAudio] = useState(false);
     const [isAddingTemplate, setIsAddingTemplate] = useState(false);
+    const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
 
     // Prompt History
     const [promptHistory, setPromptHistory] = useState<PromptHistoryEntry[]>([]);
@@ -68,7 +70,7 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
         if (!newTemplateName || !newTemplatePrompt) return toast.error("Fill in all fields");
         
         await saveTemplate({
-            id: uuidv4(),
+            id: editingTemplate ? editingTemplate.id : uuidv4(),
             name: newTemplateName,
             prompt: newTemplatePrompt,
             type: newTemplateType,
@@ -79,9 +81,19 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
         setNewTemplatePrompt('');
         setNewTemplateAutoAudio(false);
         setIsAddingTemplate(false);
+        setEditingTemplate(null);
         await refreshTemplates();
-        toast.success("Template added");
+        toast.success(editingTemplate ? "Template updated" : "Template added");
     }
+
+    const handleEditTemplate = (t: Template) => {
+        setNewTemplateName(t.name);
+        setNewTemplatePrompt(t.prompt);
+        setNewTemplateType(t.type);
+        setNewTemplateAutoAudio(!!t.auto_generate_audio);
+        setEditingTemplate(t);
+        setIsAddingTemplate(true);
+    };
 
     const handleDeleteTemplate = async (id: string) => {
         if (confirm("Delete this template?")) {
@@ -279,7 +291,13 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
                                 </h3>
                                 {!isAddingTemplate && (
                                     <button 
-                                        onClick={() => setIsAddingTemplate(true)}
+                                        onClick={() => {
+                                            setEditingTemplate(null);
+                                            setNewTemplateName('');
+                                            setNewTemplatePrompt('');
+                                            setNewTemplateAutoAudio(false);
+                                            setIsAddingTemplate(true);
+                                        }}
                                         className="text-xs flex items-center gap-1 bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100 font-medium"
                                     >
                                         <Plus size={14} /> New Template
@@ -289,6 +307,7 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
 
                             {isAddingTemplate && (
                                 <div className="bg-gray-50 p-4 rounded-lg border border-blue-100 mb-4 animate-in slide-in-from-top-2">
+                                    <h4 className="text-xs font-bold text-blue-800 mb-3">{editingTemplate ? 'Edit Template' : 'New Template'}</h4>
                                     <div className="space-y-3">
                                         <div className="flex gap-4">
                                             <div className="flex-1">
@@ -334,7 +353,7 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
                                             ></textarea>
                                         </div>
                                         <div className="flex justify-end gap-2">
-                                            <button onClick={() => setIsAddingTemplate(false)} className="text-xs px-3 py-1 text-gray-500 hover:text-gray-700">Cancel</button>
+                                            <button onClick={() => { setIsAddingTemplate(false); setEditingTemplate(null); }} className="text-xs px-3 py-1 text-gray-500 hover:text-gray-700">Cancel</button>
                                             <button onClick={handleSaveTemplate} className="text-xs px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">Save</button>
                                         </div>
                                     </div>
@@ -361,13 +380,22 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
                                                     {t.prompt}
                                                 </p>
                                             </div>
-                                            <button 
-                                                onClick={() => handleDeleteTemplate(t.id)}
-                                                className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-all"
-                                                title="Delete"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
+                                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                                <button 
+                                                    onClick={() => handleEditTemplate(t)}
+                                                    className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+                                                    title="Edit"
+                                                >
+                                                    <Edit2 size={14} />
+                                                </button>
+                                                <button 
+                                                    onClick={() => handleDeleteTemplate(t.id)}
+                                                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded"
+                                                    title="Delete"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 ))}
