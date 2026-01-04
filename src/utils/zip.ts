@@ -14,11 +14,12 @@ export const sanitizeFilename = (name: string): string => {
 };
 
 /**
- * Resolves the full folder path for a topic by traversing its ancestors.
+ * Resolves the root folder name for a topic.
+ * Returns only the top-level ancestor's name (prefixed with code if available).
  */
-export const getTopicPath = (topicId: string, topicsMap: Map<string, Topic>): string[] => {
-  const path: string[] = [];
+export const getRootTopicFolder = (topicId: string, topicsMap: Map<string, Topic>): string => {
   let currentId: string | null = topicId;
+  let rootTopic: Topic | null = null;
   const visited = new Set<string>();
 
   while (currentId && !visited.has(currentId)) {
@@ -26,16 +27,16 @@ export const getTopicPath = (topicId: string, topicsMap: Map<string, Topic>): st
     const topic = topicsMap.get(currentId);
     if (!topic) break;
     
-    // Prefix with code if available for better sorting in filesystems
-    const folderName = topic.code 
-      ? `${topic.code} ${topic.title}` 
-      : topic.title;
-      
-    path.unshift(sanitizeFilename(folderName));
+    rootTopic = topic;
     currentId = topic.parent_id || null;
   }
 
-  return path;
+  if (!rootTopic) return 'Unknown';
+
+  // Format: "CODE Title" or just "Title"
+  return sanitizeFilename(rootTopic.code 
+    ? `${rootTopic.code} ${rootTopic.title}` 
+    : rootTopic.title);
 };
 
 export interface ExportProgress {
@@ -111,27 +112,31 @@ export const exportAudioLibraryToZip = async (
         fileExtension = 'wav';
       }
 
-      // Determine path
-      const pathParts = getTopicPath(ep.topic_id, topicsMap);
+      // 1. Determine Folder (Root Topic Only)
+      const folderName = getRootTopicFolder(ep.topic_id, topicsMap);
       
-      // Determine filename
-      // Prefix with a timestamp to ensure uniqueness and correct sorting in the player
-      const datePrefix = new Date(ep.created_at).toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      const filename = sanitizeFilename(`${datePrefix} - ${ep.title}.${fileExtension}`);
+      // 2. Determine Filename Format: CODE_Slug-Title_YYYY-MM-DD
+      // Get the code from the episode's topic (not necessarily root)
+      const topic = topicsMap.get(ep.topic_id);
+      const code = (topic?.code || ep.topic_code || 'MISC').toUpperCase();
       
-      // Navigate/create folders in ZIP
-      let currentFolder: JSZip = zip;
-      for (const part of pathParts) {
-        if (!part) continue;
-        const nextFolder = currentFolder.folder(part);
-        if (nextFolder) {
-          currentFolder = nextFolder;
-        }
-      }
+      // Slugify title: lowercase, replace non-alphanumeric (except dashes) with nothing, spaces with dashes
+      const slugTitle = ep.title
+        .toLowerCase()
+        .replace(/[^a-z0-9 -]/g, '') // remove special chars
+        .replace(/\s+/g, '-')        // spaces to dashes
+        .replace(/-+/g, '-');        // collapse dashes
 
-      // JSZip can take a Blob directly, which is more memory efficient
-      console.log(`Adding to ZIP: ${filename} (${finalBlob.size} bytes)`);
-      currentFolder.file(filename, finalBlob);
+      const dateStr = new Date(ep.created_at).toISOString().slice(0, 10); // YYYY-MM-DD
+      
+      const filename = `${code}_${slugTitle}_${dateStr}.${fileExtension}`;
+      
+      // Navigate/create folder in ZIP
+      const currentFolder = zip.folder(folderName);
+      if (currentFolder) {
+          console.log(`Adding to ZIP: ${folderName}/${filename} (${finalBlob.size} bytes)`);
+          currentFolder.file(filename, finalBlob);
+      }
     } catch (err) {
       console.error(`Failed to export episode ${ep.title}`, err);
       // Re-throw to stop the process and inform the user

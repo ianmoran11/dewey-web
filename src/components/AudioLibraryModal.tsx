@@ -17,6 +17,7 @@ const formatDate = (ts: number) => {
 export const AudioLibraryModal = ({ onClose }: { onClose: () => void }) => {
   const selectTopic = useStore(s => s.selectTopic);
   const topics = useStore(s => s.topics);
+  const { settings, updateSetting } = useStore();
 
   const [episodes, setEpisodes] = useState<AudioEpisode[]>([]);
   const [loading, setLoading] = useState(false);
@@ -25,7 +26,8 @@ export const AudioLibraryModal = ({ onClose }: { onClose: () => void }) => {
 
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
-  const [exportFormat, setExportFormat] = useState<ExportFormat>('wav'); // Default to WAV for reliability
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('wav'); 
+  const [exportNewOnly, setExportNewOnly] = useState(false);
 
   const [activeAudioUrl, setActiveAudioUrl] = useState<string | null>(null);
   const [activeEpisodeId, setActiveEpisodeId] = useState<string | null>(null);
@@ -65,6 +67,13 @@ export const AudioLibraryModal = ({ onClose }: { onClose: () => void }) => {
       );
     });
   }, [episodes, search, filter]);
+
+  // Derived state for new vs total
+  const stats = useMemo(() => {
+      const lastExport = settings.lastExportAt ? new Date(settings.lastExportAt).getTime() : 0;
+      const newItems = episodes.filter(e => e.created_at > lastExport);
+      return { total: episodes.length, new: newItems.length, lastExport };
+  }, [episodes, settings.lastExportAt]);
 
   const playEpisode = async (id: string) => {
     try {
@@ -126,24 +135,32 @@ export const AudioLibraryModal = ({ onClose }: { onClose: () => void }) => {
   };
 
   const handleExportZip = async () => {
-    if (episodes.length === 0) return toast.error('No episodes to export');
+    // Determine which episodes to export
+    const episodesToExport = exportNewOnly 
+        ? episodes.filter(e => e.created_at > (stats.lastExport || 0))
+        : episodes;
+
+    if (episodesToExport.length === 0) return toast.error('No episodes to export');
     
     setIsExporting(true);
-    setExportProgress({ current: 0, total: episodes.length, status: 'Preparing...' });
+    setExportProgress({ current: 0, total: episodesToExport.length, status: 'Preparing...' });
 
     try {
-      const blob = await exportAudioLibraryToZip(episodes, topics, (p) => {
+      const blob = await exportAudioLibraryToZip(episodesToExport, topics, (p) => {
         setExportProgress(p);
       }, exportFormat);
 
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `dewey-audiobook-player-export-${new Date().toISOString().slice(0, 10)}.zip`;
+      a.download = `dewey-audio-${exportNewOnly ? 'update' : 'full'}-${new Date().toISOString().slice(0, 10)}.zip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      
+      // Update last export timestamp
+      await updateSetting('lastExportAt', new Date().toISOString());
       
       toast.success('Audio library exported successfully');
     } catch (err) {
@@ -171,50 +188,71 @@ export const AudioLibraryModal = ({ onClose }: { onClose: () => void }) => {
         </div>
 
         {/* Controls */}
-        <div className="px-6 py-3 border-b border-gray-100 flex flex-col md:flex-row gap-3 md:items-center">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-            <input
-              type="text"
-              placeholder="Search title / topic / section…"
-              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+        <div className="px-6 py-3 border-b border-gray-100 flex flex-col gap-3">
+          <div className="flex gap-3 flex-col md:flex-row md:items-center">
+            <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                <input
+                type="text"
+                placeholder="Search title / topic / section…"
+                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                />
+            </div>
+            <select
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                value={filter}
+                onChange={e => setFilter(e.target.value as any)}
+            >
+                <option value="all">All</option>
+                <option value="topic">Topics</option>
+                <option value="block">Sections</option>
+            </select>
+            <button
+                onClick={refresh}
+                className="px-3 py-2 text-sm font-medium bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+                Refresh
+            </button>
           </div>
-          <select
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
-            value={filter}
-            onChange={e => setFilter(e.target.value as any)}
-          >
-            <option value="all">All</option>
-            <option value="topic">Topics</option>
-            <option value="block">Sections</option>
-          </select>
-          <button
-            onClick={refresh}
-            className="px-3 py-2 text-sm font-medium bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            Refresh
-          </button>
-          <select
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
-            value={exportFormat}
-            onChange={e => setExportFormat(e.target.value as ExportFormat)}
-            disabled={isExporting}
-            title="WAV is larger but more reliable. MP3 is smaller but may fail on some devices."
-          >
-            <option value="wav">WAV (Reliable)</option>
-            <option value="mp3">MP3 (Smaller)</option>
-          </select>
-          <button
-            onClick={handleExportZip}
-            disabled={isExporting || episodes.length === 0}
-            className="px-3 py-2 text-sm font-medium bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-sm"
-          >
-            {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-            {isExporting ? 'Exporting...' : 'Export ZIP'}
-          </button>
+          
+          {/* Export Controls */}
+          <div className="flex items-center gap-3 bg-gray-50 p-2 rounded-lg border border-gray-200">
+             <div className="flex-1 flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                    <input 
+                        type="checkbox" 
+                        id="exportNewOnly" 
+                        checked={exportNewOnly}
+                        onChange={e => setExportNewOnly(e.target.checked)}
+                        disabled={isExporting}
+                        className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                    />
+                    <label htmlFor="exportNewOnly" className="text-sm text-gray-700 select-none cursor-pointer">
+                        Export new items only <span className="text-xs text-gray-500">({stats.new} / {stats.total})</span>
+                    </label>
+                </div>
+                <div className="h-4 w-px bg-gray-300"></div>
+                <select
+                    className="border border-gray-300 rounded-md px-2 py-1 text-xs bg-white"
+                    value={exportFormat}
+                    onChange={e => setExportFormat(e.target.value as ExportFormat)}
+                    disabled={isExporting}
+                >
+                    <option value="wav">WAV (Raw)</option>
+                    <option value="mp3">MP3 (Compressed)</option>
+                </select>
+             </div>
+             <button
+                onClick={handleExportZip}
+                disabled={isExporting || episodes.length === 0 || (exportNewOnly && stats.new === 0)}
+                className="px-3 py-1.5 text-sm font-medium bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-sm"
+            >
+                {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                {isExporting ? 'Exporting...' : 'Export'}
+            </button>
+          </div>
         </div>
 
         {/* Export Progress Overlay */}
@@ -245,6 +283,12 @@ export const AudioLibraryModal = ({ onClose }: { onClose: () => void }) => {
                           {e.scope === 'topic' ? 'Topic' : 'Section'}
                         </span>
                         <span className="text-[11px] text-gray-400">{formatDate(e.created_at)}</span>
+                        {/* New Badge */}
+                        {e.created_at > (stats.lastExport || 0) && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider bg-yellow-100 text-yellow-700">
+                                New
+                            </span>
+                        )}
                       </div>
 
                       <div className="mt-2">

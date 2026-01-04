@@ -329,6 +329,7 @@ export const useStore = create<AppState>((set, get) => ({
       const deepInfraKey = await getSettings('deepInfraKey');
       const modelSubtopic = await getSettings('modelSubtopic');
       const modelContent = await getSettings('modelContent');
+      const lastExportAt = await getSettings('lastExportAt');
       
       set({ 
         settings: { 
@@ -336,6 +337,7 @@ export const useStore = create<AppState>((set, get) => ({
           deepInfraKey: deepInfraKey || undefined,
           modelSubtopic: modelSubtopic || undefined,
           modelContent: modelContent || undefined,
+          lastExportAt: lastExportAt || undefined
         } 
       });
 

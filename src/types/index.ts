@@ -54,6 +54,7 @@ export interface Settings {
   deepInfraKey?: string;
   modelSubtopic?: string;
   modelContent?: string;
+  lastExportAt?: string; // ISO string timestamp
 }
 
 export type JobType = 'subtopics' | 'content' | 'audio';
