@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { AudioEpisode } from '../types';
 import { deleteAudioEpisode, getAudioEpisodeAudio, getAudioEpisodes, updateAudioEpisodeTitle } from '../db/queries';
 import { useStore } from '../lib/store';
-import { exportAudioLibraryToZip, ExportProgress } from '../utils/zip';
+import { exportAudioLibraryToZip, ExportProgress, ExportFormat } from '../utils/zip';
 
 const formatDate = (ts: number) => {
   try {
@@ -25,6 +25,7 @@ export const AudioLibraryModal = ({ onClose }: { onClose: () => void }) => {
 
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('wav'); // Default to WAV for reliability
 
   const [activeAudioUrl, setActiveAudioUrl] = useState<string | null>(null);
   const [activeEpisodeId, setActiveEpisodeId] = useState<string | null>(null);
@@ -133,7 +134,7 @@ export const AudioLibraryModal = ({ onClose }: { onClose: () => void }) => {
     try {
       const blob = await exportAudioLibraryToZip(episodes, topics, (p) => {
         setExportProgress(p);
-      });
+      }, exportFormat);
 
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -147,7 +148,8 @@ export const AudioLibraryModal = ({ onClose }: { onClose: () => void }) => {
       toast.success('Audio library exported successfully');
     } catch (err) {
       console.error(err);
-      toast.error('Failed to export audio library');
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Export failed: ${errorMessage}`, { duration: 6000 });
     } finally {
       setIsExporting(false);
       setExportProgress(null);
@@ -195,13 +197,23 @@ export const AudioLibraryModal = ({ onClose }: { onClose: () => void }) => {
           >
             Refresh
           </button>
+          <select
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+            value={exportFormat}
+            onChange={e => setExportFormat(e.target.value as ExportFormat)}
+            disabled={isExporting}
+            title="WAV is larger but more reliable. MP3 is smaller but may fail on some devices."
+          >
+            <option value="wav">WAV (Reliable)</option>
+            <option value="mp3">MP3 (Smaller)</option>
+          </select>
           <button
             onClick={handleExportZip}
             disabled={isExporting || episodes.length === 0}
             className="px-3 py-2 text-sm font-medium bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-sm"
           >
             {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-            {isExporting ? 'Exporting...' : 'Export for Audiobook Player'}
+            {isExporting ? 'Exporting...' : 'Export ZIP'}
           </button>
         </div>
 
