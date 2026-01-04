@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { X, Trash2, ExternalLink, Headphones, Search, Edit2, Save } from 'lucide-react';
+import { X, Trash2, ExternalLink, Headphones, Search, Edit2, Save, Download, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { AudioEpisode } from '../types';
 import { deleteAudioEpisode, getAudioEpisodeAudio, getAudioEpisodes, updateAudioEpisodeTitle } from '../db/queries';
 import { useStore } from '../lib/store';
+import { exportAudioLibraryToZip, ExportProgress } from '../utils/zip';
 
 const formatDate = (ts: number) => {
   try {
@@ -15,11 +16,15 @@ const formatDate = (ts: number) => {
 
 export const AudioLibraryModal = ({ onClose }: { onClose: () => void }) => {
   const selectTopic = useStore(s => s.selectTopic);
+  const topics = useStore(s => s.topics);
 
   const [episodes, setEpisodes] = useState<AudioEpisode[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'topic' | 'block'>('all');
+
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
 
   const [activeAudioUrl, setActiveAudioUrl] = useState<string | null>(null);
   const [activeEpisodeId, setActiveEpisodeId] = useState<string | null>(null);
@@ -119,6 +124,36 @@ export const AudioLibraryModal = ({ onClose }: { onClose: () => void }) => {
     // Highlighting block is a follow-up improvement; for now the topic will load.
   };
 
+  const handleExportZip = async () => {
+    if (episodes.length === 0) return toast.error('No episodes to export');
+    
+    setIsExporting(true);
+    setExportProgress({ current: 0, total: episodes.length, status: 'Preparing...' });
+
+    try {
+      const blob = await exportAudioLibraryToZip(episodes, topics, (p) => {
+        setExportProgress(p);
+      });
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `dewey-audiobook-player-export-${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      toast.success('Audio library exported successfully');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to export audio library');
+    } finally {
+      setIsExporting(false);
+      setExportProgress(null);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl h-[85vh] flex flex-col">
@@ -160,7 +195,26 @@ export const AudioLibraryModal = ({ onClose }: { onClose: () => void }) => {
           >
             Refresh
           </button>
+          <button
+            onClick={handleExportZip}
+            disabled={isExporting || episodes.length === 0}
+            className="px-3 py-2 text-sm font-medium bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-sm"
+          >
+            {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+            {isExporting ? 'Exporting...' : 'Export for Audiobook Player'}
+          </button>
         </div>
+
+        {/* Export Progress Overlay */}
+        {isExporting && exportProgress && (
+          <div className="px-6 py-2 bg-purple-50 border-b border-purple-100 flex items-center justify-between text-xs text-purple-700 animate-in slide-in-from-top duration-200">
+            <div className="flex items-center gap-2">
+              <span className="font-bold">{Math.round((exportProgress.current / exportProgress.total) * 100)}%</span>
+              <span>{exportProgress.status}</span>
+            </div>
+            <div className="font-mono">{exportProgress.current} / {exportProgress.total}</div>
+          </div>
+        )}
 
         {/* List */}
         <div className="flex-1 overflow-auto p-6">
