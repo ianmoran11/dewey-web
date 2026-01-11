@@ -1,6 +1,6 @@
 import { sql } from './client';
 import { v4 as uuidv4 } from 'uuid';
-import { AudioEpisode, ContentBlock, Template, Topic } from '../types';
+import { AudioEpisode, ContentBlock, Template, Topic, Job } from '../types';
 import { getAudioFile, saveAudioFile, deleteAudioFile, getAudioFilename } from '../services/storage';
 
 export interface PromptHistoryEntry {
@@ -361,6 +361,53 @@ export const getAncestors = async (id: string): Promise<Topic[]> => {
     `;
     return rows as unknown as Topic[];
 }
+
+// --- Job Queue ---
+
+export const createJob = async (job: Job) => {
+    await sql`
+        INSERT INTO jobs (id, type, status, payload, created_at, started_at, completed_at, error)
+        VALUES (
+            ${job.id}, 
+            ${job.type}, 
+            ${job.status}, 
+            ${JSON.stringify(job.payload)}, 
+            ${job.createdAt}, 
+            ${job.startedAt || null}, 
+            ${job.completedAt || null}, 
+            ${job.error || null}
+        )
+    `;
+};
+
+export const updateJob = async (job: Partial<Job> & { id: string }) => {
+    if (job.status !== undefined) await sql`UPDATE jobs SET status = ${job.status} WHERE id = ${job.id}`;
+    if (job.payload !== undefined) await sql`UPDATE jobs SET payload = ${JSON.stringify(job.payload)} WHERE id = ${job.id}`;
+    if (job.startedAt !== undefined) await sql`UPDATE jobs SET started_at = ${job.startedAt} WHERE id = ${job.id}`;
+    if (job.completedAt !== undefined) await sql`UPDATE jobs SET completed_at = ${job.completedAt} WHERE id = ${job.id}`;
+    if (job.error !== undefined) await sql`UPDATE jobs SET error = ${job.error} WHERE id = ${job.id}`;
+};
+
+export const deleteJob = async (id: string) => {
+    await sql`DELETE FROM jobs WHERE id = ${id}`;
+};
+
+export const getIncompleteJobs = async (): Promise<Job[]> => {
+    const rows = await sql`
+        SELECT * FROM jobs WHERE status IN ('pending', 'processing')
+        ORDER BY created_at ASC
+    `;
+    return rows.map((row: any) => ({
+        id: row.id,
+        type: row.type,
+        status: row.status,
+        payload: JSON.parse(row.payload),
+        error: row.error,
+        createdAt: row.created_at,
+        startedAt: row.started_at,
+        completedAt: row.completed_at
+    })) as Job[];
+};
 
 // --- Data Management ---
 

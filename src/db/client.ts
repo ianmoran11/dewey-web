@@ -80,7 +80,22 @@ export const initDB = async (onProgress?: MigrationProgressCallback) => {
     );
   `;
 
+  // Persistent Job Queue
+  await sql`
+    CREATE TABLE IF NOT EXISTS jobs (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL, -- 'pending', 'processing', 'completed', 'failed'
+      payload TEXT NOT NULL, -- JSON string
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      started_at INTEGER,
+      completed_at INTEGER
+    );
+  `;
+
   await sql`CREATE INDEX IF NOT EXISTS idx_audio_episodes_created_at ON audio_episodes(created_at DESC);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_audio_episodes_topic_id ON audio_episodes(topic_id);`;
   await sql`CREATE INDEX IF NOT EXISTS idx_audio_episodes_block_id ON audio_episodes(block_id);`;
 

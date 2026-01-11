@@ -5,7 +5,8 @@ import {
     getTopics, getTopic, getAudio, getTemplates, getContentBlocks,
     createAudioEpisode,
     createTopic, createContentBlock, saveTopicAudio, saveBlockAudio,
-    updateTopic, deleteTopic, updateTopicParent, getChildren
+    updateTopic, deleteTopic, updateTopicParent, getChildren,
+    createJob, updateJob, deleteJob, getIncompleteJobs
 } from '../db/queries';
 import { generateSubtopics, generateAIContent, generateAudio } from '../services/ai';
 import { initDB, getSettings, saveSetting } from '../db/client';
@@ -82,7 +83,7 @@ export const useStore = create<AppState>((set, get) => ({
   isLoading: false,
   isInitializing: true,
 
-  addJob: (type: JobType, payload: any) => {
+  addJob: async (type: JobType, payload: any) => {
     const job: Job = {
         id: uuidv4(),
         type,
@@ -90,15 +91,23 @@ export const useStore = create<AppState>((set, get) => ({
         status: 'pending',
         createdAt: Date.now()
     };
+    // Persist immediately
+    await createJob(job);
     set((state) => ({ jobs: [...state.jobs, job] }));
     get().processQueue();
   },
 
-  removeJob: (id: string) => {
+  removeJob: async (id: string) => {
+    await deleteJob(id);
     set((state) => ({ jobs: state.jobs.filter(j => j.id !== id) }));
   },
 
-  clearCompletedJobs: () => {
+  clearCompletedJobs: async () => {
+    const jobsToRemove = get().jobs.filter(j => j.status === 'completed' || j.status === 'failed');
+    // We could optimize this with a bulk delete in queries if needed
+    for (const job of jobsToRemove) {
+        await deleteJob(job.id);
+    }
     set((state) => ({ jobs: state.jobs.filter(j => j.status !== 'completed' && j.status !== 'failed') }));
   },
 
@@ -131,6 +140,7 @@ export const useStore = create<AppState>((set, get) => ({
         lastJobStartedAt: now,
         jobs: state.jobs.map(j => j.id === pendingJob.id ? { ...j, status: 'processing', startedAt: now } : j)
     }));
+    await updateJob({ id: pendingJob.id, status: 'processing', startedAt: now });
 
     // Trigger next check immediately for concurrency filling
     get().processQueue();
@@ -289,21 +299,28 @@ export const useStore = create<AppState>((set, get) => ({
         if (pendingJob.type === 'content') targetTopicId = pendingJob.payload.topicId;
         if (pendingJob.type === 'audio') targetTopicId = pendingJob.payload.targetId; // Assuming target is topic or block
 
+        const completedAt = Date.now();
+        await updateJob({ id: pendingJob.id, status: 'completed', completedAt });
+
         set((state) => {
             const newUnread = new Set(state.unreadTopics);
             if (targetTopicId && targetTopicId !== state.selectedTopicId) {
                 newUnread.add(targetTopicId);
             }
             return {
-                jobs: state.jobs.map(j => j.id === pendingJob.id ? { ...j, status: 'completed', completedAt: Date.now() } : j),
+                jobs: state.jobs.map(j => j.id === pendingJob.id ? { ...j, status: 'completed', completedAt } : j),
                 unreadTopics: newUnread
             };
         });
 
     } catch (e: any) {
         console.error(`Job ${pendingJob.id} failed:`, e);
+        const completedAt = Date.now();
+        const errorMsg = e.message || "Unknown error";
+        await updateJob({ id: pendingJob.id, status: 'failed', error: errorMsg, completedAt });
+
         set((state) => ({
-            jobs: state.jobs.map(j => j.id === pendingJob.id ? { ...j, status: 'failed', error: e.message || "Unknown error", completedAt: Date.now() } : j)
+            jobs: state.jobs.map(j => j.id === pendingJob.id ? { ...j, status: 'failed', error: errorMsg, completedAt } : j)
         }));
     } finally {
         // Trigger queue again to pick up next tasks
@@ -343,6 +360,27 @@ export const useStore = create<AppState>((set, get) => ({
 
       await get().refreshTopics();
       await get().refreshTemplates();
+
+      // Load persistent jobs
+      const persistentJobs = await getIncompleteJobs();
+      
+      // Reset any 'processing' jobs to 'pending' to retry them (as they were likely interrupted)
+      const jobsToQueue = await Promise.all(persistentJobs.map(async (job) => {
+          if (job.status === 'processing') {
+              console.log(`[JobQueue] Resetting interrupted job ${job.id} to pending`);
+              await updateJob({ id: job.id, status: 'pending' });
+              return { ...job, status: 'pending' as const };
+          }
+          return job;
+      }));
+
+      set({ jobs: jobsToQueue });
+      
+      // Kick off queue if there are pending jobs
+      if (jobsToQueue.some(j => j.status === 'pending')) {
+          get().processQueue();
+      }
+
     } catch (e) {
       console.error('Initialization failed', e);
     } finally {
