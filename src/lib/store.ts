@@ -8,7 +8,7 @@ import {
     updateTopic, deleteTopic, updateTopicParent, getChildren,
     createJob, updateJob, deleteJob, getIncompleteJobs
 } from '../db/queries';
-import { generateSubtopics, generateAIContent, generateAudio } from '../services/ai';
+import { generateSubtopics, generateAIContent, generateAudio, reorderSubtopics } from '../services/ai';
 import { initDB, getSettings, saveSetting } from '../db/client';
 import { seedDatabase } from '../db/seed';
 import { concatWavBlobs, splitTextForTTS } from '../utils/audio';
@@ -163,24 +163,40 @@ export const useStore = create<AppState>((set, get) => ({
                 customPrompt
             );
 
-            // Generate logical codes
+            // Auto-sort subtopics into logical/textbook order using AI
+            let sortedChildren = children;
+            try {
+                console.log(`[Subtopics] Auto-sorting ${children.length} subtopics for "${topicTitle}"...`);
+                sortedChildren = await reorderSubtopics(
+                    apiKey,
+                    topicTitle,
+                    children,
+                    model
+                );
+                console.log(`[Subtopics] Auto-sort complete`);
+            } catch (sortError) {
+                // If reordering fails, fall back to original order
+                console.warn(`[Subtopics] Auto-sort failed, using original order:`, sortError);
+            }
+
+            // Generate logical codes based on sorted order
             const parent = parentId ? await getTopic(parentId) : null;
             const existingSiblings = await getChildren(parentId);
             const siblingCodes = existingSiblings.map(t => t.code).filter((c): c is string => !!c);
-            const newCodes = generateCodes(parent?.code, siblingCodes, children.length);
+            const newCodes = generateCodes(parent?.code, siblingCodes, sortedChildren.length);
 
-            for (let i = 0; i < children.length; i++) {
+            for (let i = 0; i < sortedChildren.length; i++) {
                 await createTopic({
                     id: uuidv4(),
                     parent_id: parentId,
-                    title: children[i],
+                    title: sortedChildren[i],
                     code: newCodes[i],
                     has_audio: false,
                     created_at: Date.now()
                 });
             }
             await get().refreshTopics();
-        } 
+        }
         else if (pendingJob.type === 'content') {
             if (!apiKey) throw new Error("Missing API Key");
             const { topicId, label, prompt, model, generateAudioAfter } = pendingJob.payload;
