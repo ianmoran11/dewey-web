@@ -430,8 +430,8 @@ function base64ToBuffer(base64: string): Uint8Array {
     return bytes;
 }
 
-export const exportDatabase = async () => {
-    console.log("DEBUG: Starting export");
+export const exportDatabase = async (options: { includeAudio?: boolean } = { includeAudio: true }) => {
+    console.log("DEBUG: Starting export", options);
     
     // Helper to serialize BigInts and other non-JSON types
     const serialize = (rows: any) => {
@@ -492,26 +492,33 @@ export const exportDatabase = async () => {
 
     try {
         const topics = await sql`SELECT * FROM topics`;
-        await enrichWithFiles(topics as any[]);
+        if (options.includeAudio) {
+            await enrichWithFiles(topics as any[]);
+        }
 
         const contentBlocks = await sql`SELECT * FROM content_blocks`;
-        await enrichWithFiles(contentBlocks as any[]);
+        if (options.includeAudio) {
+            await enrichWithFiles(contentBlocks as any[]);
+        }
         
         const templates = await sql`SELECT * FROM templates`;
         const settings = await sql`SELECT * FROM settings`;
         const promptHistory = await sql`SELECT * FROM prompt_history`;
         
         const audioEpisodes = await sql`SELECT * FROM audio_episodes`;
-        // Audio episodes don't typically have 'has_audio' column, so we check all or by ID
-        // The enrich helper uses a heuristic, but let's be explicit
-        for (const ep of (audioEpisodes as any[])) {
-             if (!ep.audio) {
-                 const blob = await getAudioFile(getAudioFilename(ep.id));
-                 if (blob) {
-                     const buf = await blob.arrayBuffer();
-                     ep.audio = new Uint8Array(buf);
+        
+        if (options.includeAudio) {
+            // Audio episodes don't typically have 'has_audio' column, so we check all or by ID
+            // The enrich helper uses a heuristic, but let's be explicit
+            for (const ep of (audioEpisodes as any[])) {
+                 if (!ep.audio) {
+                     const blob = await getAudioFile(getAudioFilename(ep.id));
+                     if (blob) {
+                         const buf = await blob.arrayBuffer();
+                         ep.audio = new Uint8Array(buf);
+                     }
                  }
-             }
+            }
         }
         
         return {

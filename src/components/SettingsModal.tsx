@@ -104,7 +104,8 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
 
     const handleExport = async () => {
         try {
-            const data = await exportDatabase();
+            // Exclude audio to prevent memory crashes on mobile
+            const data = await exportDatabase({ includeAudio: false });
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
