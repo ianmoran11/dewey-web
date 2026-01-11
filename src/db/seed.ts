@@ -6,13 +6,15 @@ export const seedDatabase = async () => {
   console.log('Checking database state...');
 
   // 1. Deduplication (Safety Clean)
-  // Remove duplicate topics by code (keeping the one with the earliest creation time)
-  // Only applies to seeded topics which have codes.
+  // Remove duplicate topics by (parent_id, code) pair - keeping one per unique combination
+  // This prevents deleting user-created subtopics that happen to use the same codes as root topics
   await sql`
     DELETE FROM topics 
     WHERE code IS NOT NULL 
     AND id NOT IN (
-      SELECT id FROM topics GROUP BY code HAVING code IS NOT NULL
+      SELECT MIN(id) FROM topics 
+      WHERE code IS NOT NULL 
+      GROUP BY COALESCE(parent_id, 'ROOT'), code
     )
   `;
 

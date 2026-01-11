@@ -1,4 +1,4 @@
-import { sql } from './client';
+import { sql, transaction } from './client';
 import { v4 as uuidv4 } from 'uuid';
 import { AudioEpisode, ContentBlock, Template, Topic, Job } from '../types';
 import { getAudioFile, saveAudioFile, deleteAudioFile, getAudioFilename } from '../services/storage';
@@ -537,6 +537,7 @@ export const exportDatabase = async (options: { includeAudio?: boolean } = { inc
 }
 
 export const clearDatabase = async () => {
+    await sql`DELETE FROM jobs`;
     await sql`DELETE FROM prompt_history`;
     await sql`DELETE FROM audio_episodes`;
     await sql`DELETE FROM content_blocks`;
@@ -564,66 +565,107 @@ export const importDatabase = async (data: any) => {
         return null;
     }
 
-    // Import Topics
-    for (const t of data.topics) {
-        const audioData = resolveAudio(t.audio);
-        if (audioData) {
-             const blob = new Blob([audioData as any], { type: 'audio/wav' });
-             await saveAudioFile(getAudioFilename(t.id), blob);
-        }
+    // Run the entire import inside a single DB transaction.
+    // This is critical for performance (otherwise 1000s of individual writes can appear like "nothing happens")
+    // and ensures we don't end up with partial imports.
+    await transaction(async () => {
+        const topics = data.topics as any[];
+        const blocks = data.contentBlocks as any[];
+        const templates = (data.templates || []) as any[];
+        const settings = (data.settings || []) as any[];
+        const promptHistory = (data.promptHistory || []) as any[];
+        const audioEpisodes = (data.audioEpisodes || []) as any[];
 
-        await sql`
-            INSERT INTO topics (id, parent_id, code, title, content, has_audio, created_at, audio)
-            VALUES (${t.id}, ${t.parent_id}, ${t.code}, ${t.title}, ${t.content}, ${t.has_audio}, ${t.created_at}, NULL)
-        `;
-    }
+        // Import Topics
+        for (const t of topics) {
+            const audioData = resolveAudio(t.audio);
+            if (audioData) {
+                 const blob = new Blob([audioData as any], { type: 'audio/wav' });
+                 await saveAudioFile(getAudioFilename(t.id), blob);
+            }
 
-    // Import Content Blocks
-    for (const b of data.contentBlocks) {
-         const audioData = resolveAudio(b.audio);
-         if (audioData) {
-             const blob = new Blob([audioData as any], { type: 'audio/wav' });
-             await saveAudioFile(getAudioFilename(b.id), blob);
-         }
-
-         await sql`
-            INSERT INTO content_blocks (id, topic_id, label, content, has_audio, created_at, audio)
-            VALUES (${b.id}, ${b.topic_id}, ${b.label}, ${b.content}, ${b.has_audio}, ${b.created_at}, NULL)
-        `;
-    }
-
-    // Import Templates
-    if (data.templates) {
-        for (const t of data.templates) {
+            // Use null coalescing for optional fields to handle older backups or missing fields.
             await sql`
-                INSERT INTO templates (id, name, prompt, type, is_default, auto_generate_audio)
-                VALUES (${t.id}, ${t.name}, ${t.prompt}, ${t.type}, ${t.is_default}, ${t.auto_generate_audio})
+                INSERT INTO topics (id, parent_id, code, title, content, has_audio, is_pinned, created_at, audio)
+                VALUES (
+                    ${t.id}, 
+                    ${t.parent_id ?? null}, 
+                    ${t.code ?? null}, 
+                    ${t.title}, 
+                    ${t.content ?? null}, 
+                    ${t.has_audio ?? 0}, 
+                    ${t.is_pinned ?? 0},
+                    ${t.created_at}, 
+                    NULL
+                )
             `;
         }
-    }
 
-    // Import Settings
-    if (data.settings) {
-        for (const s of data.settings) {
+        // Import Content Blocks
+        for (const b of blocks) {
+             const audioData = resolveAudio(b.audio);
+             if (audioData) {
+                 const blob = new Blob([audioData as any], { type: 'audio/wav' });
+                 await saveAudioFile(getAudioFilename(b.id), blob);
+             }
+
+             await sql`
+                INSERT INTO content_blocks (id, topic_id, label, content, has_audio, created_at, audio)
+                VALUES (
+                    ${b.id}, 
+                    ${b.topic_id}, 
+                    ${b.label}, 
+                    ${b.content}, 
+                    ${b.has_audio ?? 0}, 
+                    ${b.created_at}, 
+                    NULL
+                )
+            `;
+        }
+
+        // Import Templates
+        for (const t of templates) {
+            await sql`
+                INSERT INTO templates (id, name, prompt, type, is_default, auto_generate_audio)
+                VALUES (
+                    ${t.id}, 
+                    ${t.name}, 
+                    ${t.prompt}, 
+                    ${t.type}, 
+                    ${t.is_default ?? 0}, 
+                    ${t.auto_generate_audio ?? 0}
+                )
+            `;
+        }
+
+        // Import Settings
+        for (const s of settings) {
              await sql`
                 INSERT INTO settings (key, value) VALUES (${s.key}, ${s.value})
             `;
         }
-    }
 
-    // Import Prompt History
-    if (data.promptHistory) {
-        for (const p of data.promptHistory) {
+        // Import Prompt History
+        for (const p of promptHistory) {
             await sql`
                 INSERT INTO prompt_history (id, created_at, provider, type, model, topic_id, topic_title, template_id, template_name, payload)
-                VALUES (${p.id}, ${p.created_at}, ${p.provider}, ${p.type}, ${p.model}, ${p.topic_id}, ${p.topic_title}, ${p.template_id}, ${p.template_name}, ${p.payload})
+                VALUES (
+                    ${p.id}, 
+                    ${p.created_at}, 
+                    ${p.provider}, 
+                    ${p.type}, 
+                    ${p.model ?? null}, 
+                    ${p.topic_id ?? null}, 
+                    ${p.topic_title ?? null}, 
+                    ${p.template_id ?? null}, 
+                    ${p.template_name ?? null}, 
+                    ${p.payload}
+                )
             `;
         }
-    }
 
-    // Import Audio Episodes (optional, for newer backups)
-    if (data.audioEpisodes) {
-        for (const ae of data.audioEpisodes) {
+        // Import Audio Episodes (optional, for newer backups)
+        for (const ae of audioEpisodes) {
             const audioData = resolveAudio(ae.audio);
             if (audioData) {
                 const blob = new Blob([audioData as any], { type: 'audio/wav' });
@@ -635,8 +677,8 @@ export const importDatabase = async (data: any) => {
                 VALUES (${ae.id}, ${ae.created_at}, ${ae.title}, ${ae.scope}, ${ae.topic_id}, ${ae.block_id || null}, ${new Uint8Array(0)})
             `;
         }
-    }
-    
-    // Mark migration as done since we imported directly to files
-    await sql`INSERT INTO settings (key, value) VALUES ('storage_migration_v2_done', 'true')`;
+
+        // Mark migration as done since we imported directly to files
+        await sql`INSERT INTO settings (key, value) VALUES ('storage_migration_v2_done', 'true')`;
+    });
 }

@@ -92,6 +92,7 @@ export const useStore = create<AppState>((set, get) => ({
         createdAt: Date.now()
     };
     // Persist immediately
+    console.log(`[JobPersistence] Creating job ${job.id} (${job.type})`);
     await createJob(job);
     set((state) => ({ jobs: [...state.jobs, job] }));
     get().processQueue();
@@ -140,6 +141,7 @@ export const useStore = create<AppState>((set, get) => ({
         lastJobStartedAt: now,
         jobs: state.jobs.map(j => j.id === pendingJob.id ? { ...j, status: 'processing', startedAt: now } : j)
     }));
+    console.log(`[JobPersistence] Starting job ${pendingJob.id}`);
     await updateJob({ id: pendingJob.id, status: 'processing', startedAt: now });
 
     // Trigger next check immediately for concurrency filling
@@ -300,6 +302,7 @@ export const useStore = create<AppState>((set, get) => ({
         if (pendingJob.type === 'audio') targetTopicId = pendingJob.payload.targetId; // Assuming target is topic or block
 
         const completedAt = Date.now();
+        console.log(`[JobPersistence] Job ${pendingJob.id} completed successfully`);
         await updateJob({ id: pendingJob.id, status: 'completed', completedAt });
 
         set((state) => {
@@ -363,6 +366,7 @@ export const useStore = create<AppState>((set, get) => ({
 
       // Load persistent jobs
       const persistentJobs = await getIncompleteJobs();
+      console.log(`[JobPersistence] App Init: Found ${persistentJobs.length} incomplete jobs in DB`);
       
       // Reset any 'processing' jobs to 'pending' to retry them (as they were likely interrupted)
       const jobsToQueue = await Promise.all(persistentJobs.map(async (job) => {

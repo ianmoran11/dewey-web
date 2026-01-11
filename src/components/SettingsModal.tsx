@@ -36,6 +36,8 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
 
     // Data Management
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isImporting, setIsImporting] = useState(false);
+    const importToastIdRef = useRef<string | null>(null);
 
     useEffect(() => {
         if (openRouterKey) {
@@ -123,35 +125,64 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
     }
 
     const handleImportClick = () => {
+        console.log('[Import] Import click');
+        // Important: if user selects the same file twice, <input type="file"> may not fire onChange.
+        // Reset value before opening the picker.
+        if (fileInputRef.current) fileInputRef.current.value = '';
         fileInputRef.current?.click();
     }
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        console.log('[Import] file input onChange fired');
         const file = e.target.files?.[0];
-        if (!file) return;
+        if (!file) {
+            console.log('[Import] no file selected');
+            return;
+        }
+
+        console.log(`[Import] selected file: ${file.name} (${file.size} bytes)`);
 
         if (!confirm("This will OVERWRITE your current database. Continue?")) {
             e.target.value = ''; // reset
             return;
         }
 
+        setIsImporting(true);
+        importToastIdRef.current = toast.loading('Import started…');
+
         const reader = new FileReader();
         reader.onload = async (event) => {
             try {
+                toast.loading('Reading file…', { id: importToastIdRef.current || undefined });
                 const text = event.target?.result as string;
+                toast.loading('Parsing JSON…', { id: importToastIdRef.current || undefined });
                 const data = JSON.parse(text);
+
+                toast.loading('Importing into database…', { id: importToastIdRef.current || undefined });
                 await importDatabase(data);
                 
                 // Refresh everything
                 await refreshTemplates();
                 await refreshTopics();
                 
-                toast.success("Database imported successfully");
+                toast.success('Database imported successfully', { id: importToastIdRef.current || undefined });
                 window.location.reload(); // safest way to update full state
-            } catch (err) {
+            } catch (err: any) {
                 console.error(err);
-                toast.error("Import failed: Invalid file");
+                toast.error(`Import failed: ${err.message || 'Invalid file'}`, { id: importToastIdRef.current || undefined });
+            } finally {
+                setIsImporting(false);
+                // Allow importing the same file again
+                e.target.value = '';
+                importToastIdRef.current = null;
             }
+        };
+        reader.onerror = (ev) => {
+            console.error('[Import] FileReader error', ev);
+            toast.error('Import failed: could not read file', { id: importToastIdRef.current || undefined });
+            setIsImporting(false);
+            e.target.value = '';
+            importToastIdRef.current = null;
         };
         reader.readAsText(file);
     }
@@ -506,6 +537,7 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
                                 <div className="flex gap-4">
                                     <button 
                                         onClick={handleExport}
+                                        disabled={isImporting}
                                         className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-blue-600 transition-colors shadow-sm"
                                     >
                                         <Download size={16} /> Export Data
@@ -513,9 +545,10 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
                                     
                                     <button 
                                         onClick={handleImportClick}
+                                        disabled={isImporting}
                                         className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-green-600 transition-colors shadow-sm"
                                     >
-                                        <Upload size={16} /> Import Data
+                                        <Upload size={16} /> {isImporting ? 'Importing…' : 'Import Data'}
                                     </button>
                                     <input 
                                         type="file" 
