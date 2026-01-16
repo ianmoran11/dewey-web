@@ -9,6 +9,9 @@ import { TopicModal } from './TopicModal';
 import { deleteContentBlock, getBlockAudio } from '../db/queries';
 import toast from 'react-hot-toast';
 import { interpolatePrompt } from '../utils/prompts';
+import { FlashcardList } from './FlashcardList';
+import { ReviewSession } from './ReviewSession';
+import { BrainCircuit as BrainIcon } from 'lucide-react';
 
 const BlockAudioPlayer = ({ blockId }: { blockId: string }) => {
     const [url, setUrl] = useState<string | null>(null);
@@ -52,14 +55,23 @@ export const MainArea = () => {
     
     const [showContentMenu, setShowContentMenu] = useState(false);
     const [showSubtopicMenu, setShowSubtopicMenu] = useState(false);
+    const [showFlashcardMenu, setShowFlashcardMenu] = useState(false);
     const [selection, setSelection] = useState('');
+    const [activeTab, setActiveTab] = useState<'content' | 'flashcards'>('content');
     
     // Edit Modal State
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [isReviewOpen, setIsReviewOpen] = useState(false);
+    
     const deleteTopic = useStore(s => s.deleteTopic);
 
     const isBulk = checkedTopicIds.size > 0;
     const targetCount = isBulk ? checkedTopicIds.size : 1;
+
+    // Reset tab on topic change
+    React.useEffect(() => {
+        setActiveTab('content');
+    }, [selectedTopic?.id]);
 
     // Handle text selection
     React.useEffect(() => {
@@ -139,9 +151,9 @@ export const MainArea = () => {
         // SQLocal/SQLite may return 0/1 for booleans, so we force cast to boolean.
         let generateAudioAfter = !!template.auto_generate_audio;
         
-        // If not enabled in template, prompt user
+        // If not enabled in template, prompt user (only for content type)
         // This covers undefined, null, false, 0
-        if (!generateAudioAfter) {
+        if (template.type === 'content' && !generateAudioAfter) {
              const shouldGenerateAudio = window.confirm("Do you want to auto-generate audio for this content after text is generated?");
              generateAudioAfter = shouldGenerateAudio;
         }
@@ -151,21 +163,37 @@ export const MainArea = () => {
             try {
                 const prompt = await interpolatePrompt(template.prompt, target);
                 
-                addJob('content', {
-                    topicId: target.id,
-                    label: template.name,
-                    prompt,
-                    model: settings.modelContent,
-                    generateAudioAfter
-                });
+                if (template.type === 'content') {
+                    addJob('content', {
+                        topicId: target.id,
+                        label: template.name,
+                        prompt,
+                        model: settings.modelContent,
+                        generateAudioAfter
+                    });
+                } else if (template.type === 'flashcards') {
+                    addJob('flashcards', {
+                        topicId: target.id,
+                        prompt,
+                        model: settings.modelContent
+                    });
+                }
+                
                 queuedCount++;
             } catch (e: any) {
                  console.error(e);
             }
         }
         
-        if (queuedCount > 0) toast.success(`Content generation queued for ${queuedCount} topic(s)${generateAudioAfter ? ' (Audio included)' : ''}`);
-        else toast.error("Failed to queue generation");
+        if (queuedCount > 0) {
+            if (template.type === 'flashcards') {
+                toast.success(`Flashcard generation queued`);
+            } else {
+                toast.success(`Content generation queued for ${queuedCount} topic(s)${generateAudioAfter ? ' (Audio included)' : ''}`);
+            }
+        } else {
+            toast.error("Failed to queue generation");
+        }
     }
 
     const handleDeleteBlock = async (id: string) => {
@@ -243,6 +271,7 @@ export const MainArea = () => {
     // Filter templates
     const contentTemplates = templates.filter(t => t.type === 'content');
     const subtopicTemplates = templates.filter(t => t.type === 'subtopics');
+    const flashcardTemplates = templates.filter(t => t.type === 'flashcards');
 
     return (
         <div key={selectedTopic.id} className="flex-1 h-full overflow-y-auto bg-white custom-scrollbar pb-20">
@@ -267,8 +296,70 @@ export const MainArea = () => {
                         </button>
                     </div>
                     
+                    {/* Tabs */}
+                    <div className="flex gap-6 mb-6">
+                        <button 
+                            onClick={() => setActiveTab('content')}
+                            className={`pb-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'content' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                        >
+                            Content
+                        </button>
+                        <button 
+                            onClick={() => setActiveTab('flashcards')}
+                            className={`pb-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'flashcards' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                        >
+                            Flashcards
+                        </button>
+                    </div>
+
                     {/* Action Bar */}
                      <div className="flex flex-wrap gap-3 items-center">
+                        {activeTab === 'flashcards' ? (
+                            <>
+                                <button 
+                                    onClick={() => setIsReviewOpen(true)}
+                                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-all shadow-sm"
+                                >
+                                    <BrainIcon size={16} />
+                                    Start Review
+                                </button>
+
+                                <div className="relative">
+                                    <button 
+                                        onClick={() => setShowFlashcardMenu(!showFlashcardMenu)} 
+                                        className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 hover:text-blue-600 rounded-lg transition-all shadow-sm"
+                                    >
+                                        <Wand2 size={16} />
+                                        Generate with AI
+                                        <ChevronDown size={14} className="text-gray-400" />
+                                    </button>
+
+                                    {showFlashcardMenu && (
+                                        <>
+                                            <div className="fixed inset-0 z-10" onClick={() => setShowFlashcardMenu(false)}></div>
+                                            <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-20 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+                                                <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider bg-gray-50 border-b border-gray-50 mb-1">Select Template</div>
+                                                {flashcardTemplates.length === 0 ? (
+                                                    <div className="px-4 py-2 text-sm text-gray-500">No flashcard templates</div>
+                                                ) : (
+                                                    flashcardTemplates.map(t => (
+                                                        <button 
+                                                            key={t.id}
+                                                            onClick={() => { setShowFlashcardMenu(false); handleGenerateContent(t.id); }}
+                                                            className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors flex items-center gap-2"
+                                                        >
+                                                            <FileIcon size={14} />
+                                                            {t.name}
+                                                        </button>
+                                                    ))
+                                                )}
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            </>
+                        ) : (
+                            <>
                         <div className="relative">
                             <button 
                                 onClick={() => setShowSubtopicMenu(!showSubtopicMenu)} 
@@ -367,6 +458,8 @@ export const MainArea = () => {
                                 Delete
                             </button>
                         )}
+                            </>
+                        )}
                     </div>
                 </div>
 
@@ -378,7 +471,7 @@ export const MainArea = () => {
                 />
 
                 {/* Audio Player */}
-                {audioUrl && (
+                {audioUrl && activeTab === 'content' && (
                     <div className="mb-8 bg-gradient-to-r from-gray-50 to-gray-100 p-4 rounded-xl border border-gray-200 shadow-sm flex items-center gap-4">
                         <div className="w-10 h-10 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center flex-shrink-0">
                             <Volume2 size={20} />
@@ -390,56 +483,62 @@ export const MainArea = () => {
                     </div>
                 )}
 
-                {/* Content Blocks */}
-                <div className="space-y-8 flex-1">
-                    {/* Fallback for legacy content */}
-                    {selectedTopic.content && selectedContentBlocks.length === 0 && (
-                         <div className="prose prose-lg prose-slate max-w-none">
-                            <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{selectedTopic.content}</ReactMarkdown>
-                         </div>
-                    )}
-                    
-                    {selectedContentBlocks.length === 0 && !selectedTopic.content ? (
-                        <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-gray-200 rounded-xl bg-gray-50/50">
-                            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4 text-gray-400">
-                                <FileIcon size={32} />
+                {/* Content / Flashcards */}
+                {activeTab === 'flashcards' ? (
+                    <FlashcardList />
+                ) : (
+                    <div className="space-y-8 flex-1">
+                        {/* Fallback for legacy content */}
+                        {selectedTopic.content && selectedContentBlocks.length === 0 && (
+                             <div className="prose prose-lg prose-slate max-w-none">
+                                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{selectedTopic.content}</ReactMarkdown>
+                             </div>
+                        )}
+                        
+                        {selectedContentBlocks.length === 0 && !selectedTopic.content ? (
+                            <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-gray-200 rounded-xl bg-gray-50/50">
+                                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4 text-gray-400">
+                                    <FileIcon size={32} />
+                                </div>
+                                <p className="text-gray-500 font-medium">No content yet.</p>
+                                <p className="text-gray-400 text-sm mt-1">Select a template to generate content.</p>
                             </div>
-                            <p className="text-gray-500 font-medium">No content yet.</p>
-                            <p className="text-gray-400 text-sm mt-1">Select a template to generate content.</p>
-                        </div>
-                    ) : (
-                        selectedContentBlocks.map(block => (
-                            <div key={block.id} className="group relative">
-                                <div className="flex justify-between items-center mb-3 border-b border-gray-100 pb-2">
-                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{block.label}</span>
-                                    <div className="flex items-center gap-2">
-                                        <button 
-                                            onClick={() => handleGenerateAudio(block.id)}
-                                            className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-all"
-                                            title="Narrate Section"
-                                        >
-                                            <Volume2 size={14} />
-                                        </button>
-                                        <button 
-                                            onClick={() => handleDeleteBlock(block.id)}
-                                            className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-all"
-                                            title="Delete Section"
-                                        >
-                                            <Trash2 size={14} />
-                                        </button>
+                        ) : (
+                            selectedContentBlocks.map(block => (
+                                <div key={block.id} className="group relative">
+                                    <div className="flex justify-between items-center mb-3 border-b border-gray-100 pb-2">
+                                        <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{block.label}</span>
+                                        <div className="flex items-center gap-2">
+                                            <button 
+                                                onClick={() => handleGenerateAudio(block.id)}
+                                                className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-all"
+                                                title="Narrate Section"
+                                            >
+                                                <Volume2 size={14} />
+                                            </button>
+                                            <button 
+                                                onClick={() => handleDeleteBlock(block.id)}
+                                                className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-all"
+                                                title="Delete Section"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
                                     </div>
+                                    <div className="prose prose-lg prose-slate max-w-none">
+                                        <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{block.content}</ReactMarkdown>
+                                    </div>
+                                    {block.has_audio && (
+                                        <BlockAudioPlayer blockId={block.id} />
+                                    )}
                                 </div>
-                                <div className="prose prose-lg prose-slate max-w-none">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{block.content}</ReactMarkdown>
-                                </div>
-                                {block.has_audio && (
-                                    <BlockAudioPlayer blockId={block.id} />
-                                )}
-                            </div>
-                        ))
-                    )}
-                </div>
+                            ))
+                        )}
+                    </div>
+                )}
             </div>
+            
+            <ReviewSession isOpen={isReviewOpen} onClose={() => setIsReviewOpen(false)} />
         </div>
     );
 };

@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useStore } from '../lib/store';
 import { buildTree } from '../utils/tree';
-import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2, X, MoreHorizontal, Plus, Trash2, Edit2, ArrowRight, AlignLeft, Headphones, Wand2, ChevronUp, Library, ArrowDownAZ, Pin, ListChecks } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder, FileText, Search, Settings, ChevronsLeft, Loader2, X, MoreHorizontal, Plus, Trash2, Edit2, ArrowRight, AlignLeft, Headphones, Wand2, ChevronUp, Library, ArrowDownAZ, Pin, ListChecks, Layers } from 'lucide-react';
 import { TopicNode } from '../types';
 import { TopicModal } from './TopicModal';
 import { MoveTopicModal } from './MoveTopicModal';
@@ -156,6 +156,7 @@ const TreeNode = ({ node, level, onSelect, onAction }: { node: TopicNode, level:
                 {/* Icons for status */}
                 {!!node.has_content && <AlignLeft size={12} className="text-gray-600 ml-2" />}
                 {!!(node.has_audio || node.has_block_audio) && <Headphones size={12} className="text-gray-600 ml-2" />}
+                {!!node.has_flashcards && <Layers size={12} className="text-blue-500 ml-2" />}
                 {!!node.is_pinned && <Pin size={12} className="text-gray-600 ml-2 fill-gray-600" transform="rotate(45)" />}
                 {isQueued && <Loader2 size={12} className="animate-spin text-yellow-600 ml-2" />}
                 {isUnread && <div className="w-2 h-2 rounded-full bg-green-500 ml-2" />}
@@ -288,13 +289,14 @@ const PinnedSection = ({ onSelect, onAction }: { onSelect: (id: string) => void,
 interface SidebarProps {
     onOpenSettings: () => void;
     onOpenAudioLibrary: () => void;
+    onOpenCardLibrary: () => void;
     width: number;
     isOpen: boolean;
     setIsOpen: (isOpen: boolean) => void;
     onResizeStart: () => void;
 }
 
-export const Sidebar = ({ onOpenSettings, onOpenAudioLibrary, width, isOpen, setIsOpen, onResizeStart }: SidebarProps) => {
+export const Sidebar = ({ onOpenSettings, onOpenAudioLibrary, onOpenCardLibrary, width, isOpen, setIsOpen, onResizeStart }: SidebarProps) => {
     const topics = useStore(s => s.topics);
     const templates = useStore(s => s.templates);
     const settings = useStore(s => s.settings);
@@ -689,7 +691,14 @@ export const Sidebar = ({ onOpenSettings, onOpenAudioLibrary, width, isOpen, set
                         )}
                     </div>
 
-                    {/* Audio + Settings + Minimize */}
+                    {/* Card Library + Audio Library + Settings + Minimize */}
+                    <button
+                        onClick={onOpenCardLibrary}
+                        className="p-2 bg-white border border-gray-200 rounded-md hover:bg-gray-50 text-blue-600"
+                        title="Card Library"
+                    >
+                        <Layers size={16} />
+                    </button>
                     <button
                         onClick={onOpenAudioLibrary}
                         className="p-2 bg-white border border-gray-200 rounded-md hover:bg-gray-50 text-gray-600"

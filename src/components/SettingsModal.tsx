@@ -24,7 +24,7 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
     // New Template
     const [newTemplateName, setNewTemplateName] = useState('');
     const [newTemplatePrompt, setNewTemplatePrompt] = useState('');
-    const [newTemplateType, setNewTemplateType] = useState<'content' | 'subtopics'>('content');
+    const [newTemplateType, setNewTemplateType] = useState<'content' | 'subtopics' | 'flashcards'>('content');
     const [newTemplateAutoAudio, setNewTemplateAutoAudio] = useState(false);
     const [isAddingTemplate, setIsAddingTemplate] = useState(false);
     const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
@@ -361,6 +361,7 @@ export const SettingsModal = ({ onClose }: { onClose: () => void }) => {
                                                 >
                                                     <option value="content">Content</option>
                                                     <option value="subtopics">Subtopics</option>
+                                                    <option value="flashcards">Flashcards</option>
                                                 </select>
                                             </div>
                                         </div>

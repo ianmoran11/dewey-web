@@ -112,11 +112,29 @@ export const initDB = async (onProgress?: MigrationProgressCallback) => {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       prompt TEXT NOT NULL,
-      type TEXT NOT NULL, -- 'content' or 'subtopics'
+      type TEXT NOT NULL, -- 'content' or 'subtopics' or 'flashcards'
       is_default BOOLEAN DEFAULT 0,
       auto_generate_audio BOOLEAN DEFAULT 0
     );
   `;
+
+  // Flashcards (Anki-style)
+  await sql`
+    CREATE TABLE IF NOT EXISTS flashcards (
+      id TEXT PRIMARY KEY,
+      topic_id TEXT NOT NULL,
+      front TEXT NOT NULL,
+      back TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      next_review INTEGER,
+      interval INTEGER,
+      ease_factor REAL,
+      repetitions INTEGER,
+      FOREIGN KEY(topic_id) REFERENCES topics(id) ON DELETE CASCADE
+    );
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_flashcards_topic_id ON flashcards(topic_id);`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_flashcards_next_review ON flashcards(next_review);`;
 
   // Migrations for existing databases
   try {

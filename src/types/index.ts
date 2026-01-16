@@ -8,6 +8,7 @@ export interface Topic {
   has_audio: boolean;
   has_content?: boolean;
   has_block_audio?: boolean;
+  has_flashcards?: boolean;
   is_pinned?: boolean;
   created_at: number;
 }
@@ -23,6 +24,25 @@ export interface ContentBlock {
   content: string;
   has_audio?: boolean;
   created_at: number;
+}
+
+export interface Flashcard {
+  id: string;
+  topic_id: string;
+  front: string;
+  back: string;
+  created_at: number;
+  // SM-2 Algorithm Fields
+  next_review?: number | null; // Timestamp
+  interval: number; // Days
+  ease_factor: number;
+  repetitions: number;
+}
+
+// Extended flashcard with topic info for library view
+export interface FlashcardWithTopic extends Flashcard {
+  topic_title?: string;
+  topic_code?: string;
 }
 
 export type AudioEpisodeScope = 'topic' | 'block';
@@ -45,7 +65,7 @@ export interface Template {
   id: string;
   name: string;
   prompt: string;
-  type: 'content' | 'subtopics';
+  type: 'content' | 'subtopics' | 'flashcards';
   auto_generate_audio?: boolean;
 }
 
@@ -57,7 +77,7 @@ export interface Settings {
   lastExportAt?: string; // ISO string timestamp
 }
 
-export type JobType = 'subtopics' | 'content' | 'audio';
+export type JobType = 'subtopics' | 'content' | 'audio' | 'flashcards';
 export type JobStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
 export interface Job {

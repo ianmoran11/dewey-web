@@ -3,6 +3,7 @@ import { Sidebar } from './components/Sidebar'
 import { MainArea } from './components/MainArea'
 import { SettingsModal } from './components/SettingsModal'
 import { AudioLibraryModal } from './components/AudioLibraryModal'
+import { FlashcardLibraryModal } from './components/FlashcardLibraryModal'
 import { useStore } from './lib/store'
 import { Toaster } from 'react-hot-toast'
 import { Menu } from 'lucide-react'
@@ -11,6 +12,7 @@ function App() {
   const { init, isInitializing } = useStore();
   const [showSettings, setShowSettings] = useState(false);
   const [showAudioLibrary, setShowAudioLibrary] = useState(false);
+  const [showCardLibrary, setShowCardLibrary] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isResizing, setIsResizing] = useState(false);
@@ -74,6 +76,7 @@ function App() {
       <Sidebar 
         onOpenSettings={() => setShowSettings(true)}
         onOpenAudioLibrary={() => setShowAudioLibrary(true)}
+        onOpenCardLibrary={() => setShowCardLibrary(true)}
         width={sidebarWidth}
         isOpen={isSidebarOpen}
         setIsOpen={setIsSidebarOpen}
@@ -94,6 +97,7 @@ function App() {
       
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
       {showAudioLibrary && <AudioLibraryModal onClose={() => setShowAudioLibrary(false)} />}
+      {showCardLibrary && <FlashcardLibraryModal onClose={() => setShowCardLibrary(false)} />}
       <Toaster position="bottom-right" />
     </div>
   )

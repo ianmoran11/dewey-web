@@ -1,14 +1,15 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import { Topic, Settings, Template, ContentBlock, Job, JobType } from '../types';
+import { Topic, Settings, Template, ContentBlock, Job, JobType, Flashcard } from '../types';
 import { 
     getTopics, getTopic, getAudio, getTemplates, getContentBlocks,
     createAudioEpisode,
     createTopic, createContentBlock, saveTopicAudio, saveBlockAudio,
     updateTopic, deleteTopic, updateTopicParent, getChildren,
-    createJob, updateJob, deleteJob, getIncompleteJobs
+    createJob, updateJob, deleteJob, getIncompleteJobs,
+    createFlashcard, deleteFlashcard, updateFlashcard, getFlashcards, createFlashcardsBulk
 } from '../db/queries';
-import { generateSubtopics, generateAIContent, generateAudio, reorderSubtopics } from '../services/ai';
+import { generateSubtopics, generateAIContent, generateAudio, reorderSubtopics, generateFlashcardsJSON } from '../services/ai';
 import { initDB, getSettings, saveSetting } from '../db/client';
 import { seedDatabase } from '../db/seed';
 import { concatWavBlobs, splitTextForTTS } from '../utils/audio';
@@ -36,6 +37,9 @@ interface AppState {
   settings: Settings;
   isLoading: boolean;
   isInitializing: boolean;
+  
+  // Flashcards state
+  flashcards: Flashcard[];
 
   init: () => Promise<void>;
   selectTopic: (id: string | null) => Promise<void>;
@@ -55,6 +59,12 @@ interface AppState {
   toggleTopicPin: (id: string) => Promise<void>;
   deleteTopic: (id: string) => Promise<void>;
   
+  // Flashcard Actions
+  addFlashcard: (topicId: string, front: string, back: string) => Promise<void>;
+  removeFlashcard: (id: string) => Promise<void>;
+  editFlashcard: (id: string, front: string, back: string) => Promise<void>;
+  refreshFlashcards: () => Promise<void>;
+
   setMigrationProgress: (current: number, total: number) => void;
   
   // Job Queue Actions
@@ -82,6 +92,8 @@ export const useStore = create<AppState>((set, get) => ({
   settings: {},
   isLoading: false,
   isInitializing: true,
+  
+  flashcards: [],
 
   addJob: async (type: JobType, payload: any) => {
     const job: Job = {
@@ -137,11 +149,11 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     // Start Job
+    console.log(`[Queue] Starting job ${pendingJob.id} (${pendingJob.type})`);
     set((state) => ({
         lastJobStartedAt: now,
         jobs: state.jobs.map(j => j.id === pendingJob.id ? { ...j, status: 'processing', startedAt: now } : j)
     }));
-    console.log(`[JobPersistence] Starting job ${pendingJob.id}`);
     await updateJob({ id: pendingJob.id, status: 'processing', startedAt: now });
 
     // Trigger next check immediately for concurrency filling
@@ -231,6 +243,55 @@ export const useStore = create<AppState>((set, get) => ({
                 });
             }
         }
+        else if (pendingJob.type === 'flashcards') {
+            if (!apiKey) throw new Error("Missing API Key");
+            const { topicId, prompt, model } = pendingJob.payload;
+
+            console.log(`[Flashcards] Starting generation for topic ${topicId}`);
+
+            // Fetch topic content to use as context
+            const blocks = await getContentBlocks(topicId);
+            const topic = await getTopic(topicId);
+            
+            let fullContent = '';
+            if (topic?.content) fullContent += topic.content + "\n\n";
+            fullContent += blocks.map(b => `[${b.label}]\n${b.content}`).join("\n\n");
+
+            if (!fullContent.trim()) {
+                throw new Error("No content found in this topic to generate flashcards from.");
+            }
+
+            console.log(`[Flashcards] Content gathered: ${blocks.length} blocks, ${fullContent.length} chars`);
+
+            // Interpolate prompt with actual content
+            const finalPrompt = prompt.replace('{{content}}', fullContent);
+
+            const cardData = await generateFlashcardsJSON(apiKey, finalPrompt, model);
+
+            console.log(`[Flashcards] AI returned ${cardData.length} cards`);
+            
+            if (cardData.length === 0) {
+                throw new Error("AI returned no flashcards.");
+            }
+
+            const flashcards: Flashcard[] = cardData.map(c => ({
+                id: uuidv4(),
+                topic_id: topicId,
+                front: c.front,
+                back: c.back,
+                created_at: Date.now(),
+                interval: 0,
+                ease_factor: 2.5,
+                repetitions: 0
+            }));
+
+            await createFlashcardsBulk(flashcards);
+            console.log(`[Flashcards] ${flashcards.length} cards saved successfully`);
+
+            if (get().selectedTopicId === topicId) {
+                await get().refreshFlashcards();
+            }
+        }
         else if (pendingJob.type === 'audio') {
              if (!deepInfraKey) throw new Error("Missing API Key");
              const { targetId, isBlock, text } = pendingJob.payload;
@@ -315,6 +376,7 @@ export const useStore = create<AppState>((set, get) => ({
         let targetTopicId = null;
         if (pendingJob.type === 'subtopics') targetTopicId = pendingJob.payload.parentId;
         if (pendingJob.type === 'content') targetTopicId = pendingJob.payload.topicId;
+        if (pendingJob.type === 'flashcards') targetTopicId = pendingJob.payload.topicId;
         if (pendingJob.type === 'audio') targetTopicId = pendingJob.payload.targetId; // Assuming target is topic or block
 
         const completedAt = Date.now();
@@ -448,6 +510,7 @@ export const useStore = create<AppState>((set, get) => ({
         
         set({ selectedTopic: topic, audioUrl });
         await get().refreshContentBlocks();
+        await get().refreshFlashcards();
       } finally {
         set({ isLoading: false });
       }
@@ -470,6 +533,40 @@ export const useStore = create<AppState>((set, get) => ({
         const blocks = await getContentBlocks(selectedTopicId);
         set({ selectedContentBlocks: blocks });
     }
+  },
+
+  refreshFlashcards: async () => {
+      const { selectedTopicId } = get();
+      if (selectedTopicId) {
+          const cards = await getFlashcards(selectedTopicId);
+          set({ flashcards: cards });
+      } else {
+          set({ flashcards: [] });
+      }
+  },
+
+  addFlashcard: async (topicId, front, back) => {
+      await createFlashcard({
+          id: uuidv4(),
+          topic_id: topicId,
+          front,
+          back,
+          created_at: Date.now(),
+          interval: 0,
+          ease_factor: 2.5,
+          repetitions: 0
+      });
+      await get().refreshFlashcards();
+  },
+
+  removeFlashcard: async (id) => {
+      await deleteFlashcard(id);
+      await get().refreshFlashcards();
+  },
+
+  editFlashcard: async (id, front, back) => {
+      await updateFlashcard({ id, front, back });
+      await get().refreshFlashcards();
   },
 
   updateSetting: async (key: keyof Settings, value: string) => {

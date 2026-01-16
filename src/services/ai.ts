@@ -245,6 +245,99 @@ export const generateAIContent = async (
   return data.choices[0].message.content;
 }
 
+export interface FlashcardData {
+  front: string;
+  back: string;
+}
+
+export const generateFlashcardsJSON = async (
+  apiKey: string,
+  prompt: string,
+  model?: string
+): Promise<FlashcardData[]> => {
+    const messages = [
+        { role: "system", content: "You are a helpful assistant that outputs only JSON array of objects with 'front' and 'back' fields." },
+        { role: "user", content: prompt }
+    ];
+
+    try {
+        await createPromptHistoryEntry({
+            provider: 'openrouter',
+            type: 'content',
+            model: model || 'openai/gpt-3.5-turbo',
+            payload: JSON.stringify({ model: model || 'openai/gpt-3.5-turbo', messages }, null, 2)
+        });
+    } catch (e) {
+        console.warn('[AI] Failed to log prompt history', e);
+    }
+
+    const selectedModel = model || 'openai/gpt-3.5-turbo';
+    const cleanKey = apiKey?.trim();
+    if (!cleanKey) throw new Error('API Key is missing or empty');
+
+    const controller = new AbortController();
+    const timeoutMs = 60_000;
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+    let response: Response;
+    try {
+      response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Authorization': `Bearer ${cleanKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : 'https://dewey.app',
+          'X-Title': 'Dewey'
+        },
+        body: JSON.stringify({
+          model: selectedModel,
+          messages
+        })
+      });
+    } catch (netError: any) {
+      const isAbort = netError?.name === 'AbortError';
+      console.error('[AI] Flashcards request failed:', netError);
+      throw new Error(isAbort ? `AI request timed out after ${Math.round(timeoutMs / 1000)}s` : `Network error calling AI service: ${netError?.message || String(netError)}`);
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+
+    if (!response.ok) {
+      const err = await response.text();
+      if (response.status === 401) {
+        throw new Error('Authentication Failed (401). Please check your OpenRouter API Key in Settings.');
+      }
+      throw new Error(`AI Request Failed: ${response.status} ${response.statusText} - ${err}`);
+    }
+
+    const data = await response.json() as AIResponse;
+    const content = data.choices[0].message.content;
+
+    try {
+        // Clean up markdown code blocks if any
+        let jsonText = content.replace(/```json\n?|\n?```/g, '').trim();
+        const start = jsonText.indexOf('[');
+        const end = jsonText.lastIndexOf(']');
+        if (start !== -1 && end !== -1 && end > start) {
+            jsonText = jsonText.substring(start, end + 1);
+        }
+
+        const parsed = JSON.parse(jsonText);
+        if (Array.isArray(parsed)) {
+            // Validate structure
+            return parsed.map((item: any) => ({
+                front: String(item.front || ''),
+                back: String(item.back || '')
+            })).filter(c => c.front && c.back);
+        }
+        return [];
+    } catch (e) {
+        console.error("[AI] Failed to parse flashcards response:", content?.substring(0, 500));
+        throw new Error("Failed to parse AI response");
+    }
+}
+
 const stripMarkdown = (text: string): string => {
     return text
         // Remove headers

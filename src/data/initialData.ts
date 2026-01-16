@@ -339,3 +339,30 @@ export const initialTaxonomyRaw = `
 | ZJ | Recreation & Leisure | Collecting & Connoisseurship |
 | ZK | Recreation & Leisure | Pets & Companion Animals |
 `;
+
+// Default flashcard template
+// Note: flashcard generation in the app expects a template with {{content}} placeholder.
+export const defaultFlashcardTemplate = {
+  id: 'default-flashcards',
+  name: 'Standard Flashcards',
+  type: 'flashcards' as const,
+  prompt: `You are an expert tutor.
+
+Create 8-15 Anki-style flashcards based ONLY on the provided content.
+
+Rules:
+- Only create cards for concepts explicitly present in the content.
+- Prefer atomic cards: 1 fact/concept per card.
+- Use clear, unambiguous wording.
+- Use markdown where useful.
+- No trick questions.
+- Do NOT include any commentary or explanation outside the JSON.
+
+Output format:
+Return ONLY a JSON array. Each element must be an object with exactly these keys:
+- front: string
+- back: string
+
+Content:
+{{content}}`,
+};

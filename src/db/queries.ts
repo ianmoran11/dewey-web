@@ -1,6 +1,6 @@
 import { sql, transaction } from './client';
 import { v4 as uuidv4 } from 'uuid';
-import { AudioEpisode, ContentBlock, Template, Topic, Job } from '../types';
+import { AudioEpisode, ContentBlock, Template, Topic, Job, Flashcard, FlashcardWithTopic } from '../types';
 import { getAudioFile, saveAudioFile, deleteAudioFile, getAudioFilename } from '../services/storage';
 
 export interface PromptHistoryEntry {
@@ -31,7 +31,13 @@ export const getTopics = async (): Promise<Topic[]> => {
             WHEN stats.has_block_audio > 0 THEN 1 
             ELSE 0 
          END
-      ) AS has_block_audio
+      ) AS has_block_audio,
+      (
+         CASE 
+            WHEN fc_stats.flashcard_count > 0 THEN 1 
+            ELSE 0 
+         END
+      ) AS has_flashcards
     FROM topics t 
     LEFT JOIN (
         SELECT 
@@ -41,6 +47,13 @@ export const getTopics = async (): Promise<Topic[]> => {
         FROM content_blocks
         GROUP BY topic_id
     ) stats ON t.id = stats.topic_id
+    LEFT JOIN (
+        SELECT 
+            topic_id, 
+            COUNT(*) as flashcard_count
+        FROM flashcards
+        GROUP BY topic_id
+    ) fc_stats ON t.id = fc_stats.topic_id
     ORDER BY t.code ASC, t.created_at ASC
   `;
   // Cast the result
@@ -306,6 +319,93 @@ export const deleteContentBlock = async (id: string) => {
     await sql`DELETE FROM content_blocks WHERE id = ${id}`;
 }
 
+// --- Flashcards ---
+
+export const createFlashcard = async (card: Flashcard) => {
+    await sql`
+        INSERT INTO flashcards (id, topic_id, front, back, created_at, next_review, interval, ease_factor, repetitions)
+        VALUES (
+            ${card.id}, 
+            ${card.topic_id}, 
+            ${card.front}, 
+            ${card.back}, 
+            ${card.created_at}, 
+            ${card.next_review || null}, 
+            ${card.interval}, 
+            ${card.ease_factor}, 
+            ${card.repetitions}
+        )
+    `;
+}
+
+export const createFlashcardsBulk = async (cards: Flashcard[]) => {
+    // Insert cards one by one without transaction to avoid locking the database
+    // SQLocal's transaction can cause deadlocks with concurrent reads
+    for (const card of cards) {
+        await sql`
+            INSERT INTO flashcards (id, topic_id, front, back, created_at, next_review, interval, ease_factor, repetitions)
+            VALUES (
+                ${card.id}, 
+                ${card.topic_id}, 
+                ${card.front}, 
+                ${card.back}, 
+                ${card.created_at}, 
+                ${card.next_review || null}, 
+                ${card.interval}, 
+                ${card.ease_factor}, 
+                ${card.repetitions}
+            )
+        `;
+    }
+}
+
+export const getFlashcards = async (topicId: string): Promise<Flashcard[]> => {
+    const rows = await sql`
+        SELECT * FROM flashcards WHERE topic_id = ${topicId} ORDER BY created_at ASC
+    `;
+    return rows as unknown as Flashcard[];
+}
+
+export const getDueFlashcards = async (topicId: string): Promise<Flashcard[]> => {
+    const now = Date.now();
+    // Return cards where next_review is null (new) or <= now
+    // We limit to prevent overwhelming session
+    const rows = await sql`
+        SELECT * FROM flashcards 
+        WHERE topic_id = ${topicId} 
+          AND (next_review IS NULL OR next_review <= ${now})
+        ORDER BY next_review ASC
+        LIMIT 50
+    `;
+    return rows as unknown as Flashcard[];
+}
+
+export const updateFlashcard = async (card: Partial<Flashcard> & { id: string }) => {
+    if (card.front !== undefined) await sql`UPDATE flashcards SET front = ${card.front} WHERE id = ${card.id}`;
+    if (card.back !== undefined) await sql`UPDATE flashcards SET back = ${card.back} WHERE id = ${card.id}`;
+    if (card.next_review !== undefined) await sql`UPDATE flashcards SET next_review = ${card.next_review} WHERE id = ${card.id}`;
+    if (card.interval !== undefined) await sql`UPDATE flashcards SET interval = ${card.interval} WHERE id = ${card.id}`;
+    if (card.ease_factor !== undefined) await sql`UPDATE flashcards SET ease_factor = ${card.ease_factor} WHERE id = ${card.id}`;
+    if (card.repetitions !== undefined) await sql`UPDATE flashcards SET repetitions = ${card.repetitions} WHERE id = ${card.id}`;
+}
+
+export const deleteFlashcard = async (id: string) => {
+    await sql`DELETE FROM flashcards WHERE id = ${id}`;
+}
+
+export const getAllFlashcards = async (): Promise<FlashcardWithTopic[]> => {
+    const rows = await sql`
+        SELECT 
+            f.*,
+            t.title AS topic_title,
+            t.code AS topic_code
+        FROM flashcards f
+        JOIN topics t ON t.id = f.topic_id
+        ORDER BY f.created_at DESC
+    `;
+    return rows as unknown as FlashcardWithTopic[];
+}
+
 // --- Templates ---
 
 export const getTemplates = async (): Promise<Template[]> => {
@@ -504,6 +604,7 @@ export const exportDatabase = async (options: { includeAudio?: boolean } = { inc
         const templates = await sql`SELECT * FROM templates`;
         const settings = await sql`SELECT * FROM settings`;
         const promptHistory = await sql`SELECT * FROM prompt_history`;
+        const flashcards = await sql`SELECT * FROM flashcards`;
         
         const audioEpisodes = await sql`SELECT * FROM audio_episodes`;
         
@@ -528,6 +629,7 @@ export const exportDatabase = async (options: { includeAudio?: boolean } = { inc
             templates: serialize(templates),
             settings: serialize(settings),
             promptHistory: serialize(promptHistory),
+            flashcards: serialize(flashcards),
             audioEpisodes: serialize(audioEpisodes)
         };
     } catch (e) {
@@ -539,6 +641,7 @@ export const exportDatabase = async (options: { includeAudio?: boolean } = { inc
 export const clearDatabase = async () => {
     await sql`DELETE FROM jobs`;
     await sql`DELETE FROM prompt_history`;
+    await sql`DELETE FROM flashcards`;
     await sql`DELETE FROM audio_episodes`;
     await sql`DELETE FROM content_blocks`;
     await sql`DELETE FROM topics`;
@@ -574,6 +677,7 @@ export const importDatabase = async (data: any) => {
         const templates = (data.templates || []) as any[];
         const settings = (data.settings || []) as any[];
         const promptHistory = (data.promptHistory || []) as any[];
+        const flashcards = (data.flashcards || []) as any[];
         const audioEpisodes = (data.audioEpisodes || []) as any[];
 
         // Import Topics
@@ -660,6 +764,24 @@ export const importDatabase = async (data: any) => {
                     ${p.template_id ?? null}, 
                     ${p.template_name ?? null}, 
                     ${p.payload}
+                )
+            `;
+        }
+
+        // Import Flashcards
+        for (const f of flashcards) {
+            await sql`
+                INSERT INTO flashcards (id, topic_id, front, back, created_at, next_review, interval, ease_factor, repetitions)
+                VALUES (
+                    ${f.id}, 
+                    ${f.topic_id}, 
+                    ${f.front}, 
+                    ${f.back}, 
+                    ${f.created_at}, 
+                    ${f.next_review || null}, 
+                    ${f.interval}, 
+                    ${f.ease_factor}, 
+                    ${f.repetitions}
                 )
             `;
         }
