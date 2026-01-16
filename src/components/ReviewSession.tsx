@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useStore } from '../lib/store';
 import { X, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -7,7 +7,6 @@ import rehypeKatex from 'rehype-katex';
 import { Grade, calculateReview } from '../utils/sm2';
 import { updateFlashcard, getDueFlashcards } from '../db/queries';
 import { Flashcard } from '../types';
-import toast from 'react-hot-toast';
 
 interface ReviewSessionProps {
     isOpen: boolean;

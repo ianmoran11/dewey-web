@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useStore } from '../lib/store';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -8,7 +8,7 @@ import { FlashcardModal } from './FlashcardModal';
 import { Flashcard } from '../types';
 
 export const FlashcardList = () => {
-    const { flashcards, removeFlashcard, selectedTopicId, isLoading } = useStore();
+    const { flashcards, removeFlashcard, selectedTopicId } = useStore();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingCard, setEditingCard] = useState<Flashcard | null>(null);
 
